@@ -57,7 +57,9 @@ def main() -> None:
     ap.add_argument("--split", default="test_id")
     ap.add_argument("--n", type=int, default=0, help="subsample size (0 = all), seeded")
     ap.add_argument("--batch-size", type=int, default=32)
-    ap.add_argument("--max-new-tokens", type=int, default=1024)
+    ap.add_argument("--mode", choices=["reason", "direct"], default="reason",
+                    help="reason: <reasoning>+<answer> prompt; direct: grid only, no reasoning")
+    ap.add_argument("--max-new-tokens", type=int, default=0, help="default: 4096 (reason) / 400 (direct)")
     ap.add_argument("--thinking", action="store_true", help="Qwen3.5 thinking mode (default: off)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
@@ -66,11 +68,14 @@ def main() -> None:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    if not args.max_new_tokens:
+        args.max_new_tokens = 400 if args.mode == "direct" else 4096
+    make_msgs = prompt.messages_direct if args.mode == "direct" else prompt.messages
     path, name = resolve_model(args.model)
     recs = [json.loads(l) for l in (ROOT / "data/processed" / f"{args.split}.jsonl").open()]
     if args.n and args.n < len(recs):
         recs = random.Random(args.seed).sample(recs, args.n)
-    run = f"{name}{'-think' if args.thinking else ''}{args.tag}_{args.split}_n{len(recs)}"
+    run = f"{name}-{args.mode}{'-think' if args.thinking else ''}{args.tag}_{args.split}_n{len(recs)}"
     out = ROOT / "outputs/eval" / run
     out.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +84,7 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(path, dtype=torch.bfloat16).to("cuda").eval()
     print(f"loaded {path} ({type(model).__name__}), {len(recs)} rows, device={torch.cuda.get_device_name(0)}", flush=True)
 
-    texts = [tok.apply_chat_template(prompt.messages(r["puzzle"]), tokenize=False,
+    texts = [tok.apply_chat_template(make_msgs(r["puzzle"]), tokenize=False,
                                      add_generation_prompt=True, enable_thinking=args.thinking) for r in recs]
     t0 = time.time()
     rows = []
@@ -107,7 +112,7 @@ def main() -> None:
     by = defaultdict(list)
     for x in rows:
         by[x["grp"]].append(x)
-    summary = {"run": run, "model": path, "split": args.split, "thinking": args.thinking,
+    summary = {"run": run, "model": path, "split": args.split, "mode": args.mode, "thinking": args.thinking,
                "max_new_tokens": args.max_new_tokens, "decoding": "greedy", "seconds": round(time.time() - t0),
                "overall": agg(rows), "by_group": {k: agg(v) for k, v in sorted(by.items())}}
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
