@@ -53,7 +53,8 @@ def main() -> None:
     ap.add_argument("--n-train", type=int, default=0, help="subsample train rows (0 = all)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
-    ap.add_argument("--report-to", default="none")
+    ap.add_argument("--report-to", default=os.environ.get("SFT_REPORT_TO", "wandb"),
+                    help="wandb (default; project/entity via WANDB_PROJECT/WANDB_ENTITY) or none")
     args = ap.parse_args()
 
     import torch
@@ -62,6 +63,8 @@ def main() -> None:
     from trl import SFTConfig, SFTTrainer
 
     path = str(Path(os.environ.get("MODELS_DIR", ROOT / "models")) / args.model)
+    os.environ.setdefault("WANDB_PROJECT", "sudoku-grpo-slm")
+    os.environ.setdefault("WANDB_ENTITY", "2091126-hansung-university")
     run = f"sft-{args.model}-L{args.level}-{args.mode}{args.tag}"
     out = ROOT / "outputs/sft" / run
     out.mkdir(parents=True, exist_ok=True)
@@ -96,7 +99,7 @@ def main() -> None:
         max_length=args.max_len, packing=False, completion_only_loss=True,
         logging_steps=5, eval_strategy="steps", eval_steps=args.eval_steps,
         save_strategy="steps", save_steps=args.eval_steps, save_total_limit=2, save_only_model=True,
-        report_to=args.report_to, dataloader_num_workers=2,
+        report_to=args.report_to, run_name=run, dataloader_num_workers=2,
         model_init_kwargs={"dtype": torch.bfloat16},
     )
     trainer = SFTTrainer(model=path, args=cfg, train_dataset=train, eval_dataset=val,
