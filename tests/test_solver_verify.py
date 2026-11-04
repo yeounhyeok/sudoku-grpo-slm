@@ -51,6 +51,15 @@ class TestVerify(unittest.TestCase):
         st = chk.steps[0]
         self.assertFalse(st.ok(0))
 
+    def test_l3_evidence_first(self):
+        lines = solver.trace_text(self.steps, 3).splitlines()
+        self.assertRegex(lines[0], r"^(r\dc\d r:\d* c:\d* b:\d* => \d|[rcb]\d d\d \[.*\] => r\dc\d)$")
+        self.assertTrue(any(l.startswith(("b", "c", "r")) and " d" in l for l in lines))  # hidden form present
+        bad = lines[0].rsplit("=> ", 1)
+        bad = bad[0] + "=> " + (str(int(bad[1]) % 9 + 1) if bad[1].isdigit() else "r9c9")
+        chk = verify.check_trace(P, "\n".join([bad] + lines[1:]), S)
+        self.assertFalse(chk.steps[0].ok(3))
+
     def test_hidden_steps_present_and_valid(self):
         self.assertTrue(any(st.rule == "hidden" for st in self.steps))
         lines = solver.trace_text(self.steps, 2).splitlines()

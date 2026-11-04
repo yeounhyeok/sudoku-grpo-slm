@@ -31,6 +31,16 @@
         "rows": 342,
         "sha256": "b3d43ea07414544aae7807b8c1292cf4bf120153cfd77e27556f9950994917bc"
       }
+    },
+    "L3": {
+      "sft_train": {
+        "rows": 17897,
+        "sha256": "73de5d3c5af51bcee89c0cd2addc2de9473084bbd3076b2752bc99cd3300bce2"
+      },
+      "val": {
+        "rows": 342,
+        "sha256": "6c41264f7f47a6b000ee5758f6810b5650001f6d997c346ddb01bdd0e5d3d54a"
+      }
     }
   },
   "kept": {

@@ -15,6 +15,9 @@ Step text formats (one step per line):
       r7c2=6 hidden b7 [r8c1:c r9c3:r]
           every other empty cell of the unit and why 6 cannot go there
           (:r/:c/:b = 6 already in that cell's row/column/box)
+  L3  same evidence as L2 but written BEFORE the digit (compute, then commit):
+      r4c5 r:1258 c:467 b:9 => 3
+      b7 d6 [r8c1:c r9c3:r] => r7c2
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ COLS = [[r * 9 + c for r in range(9)] for c in range(9)]
 BOXES = [[(3 * (b // 3) + i) * 9 + 3 * (b % 3) + j for i in range(3) for j in range(3)] for b in range(9)]
 UNIT_CELLS = {"r": ROWS, "c": COLS, "b": BOXES}
 HIDDEN_ORDER = [("b", i) for i in range(9)] + [("r", i) for i in range(9)] + [("c", i) for i in range(9)]
-LEVELS = (0, 1, 2)
+LEVELS = (0, 1, 2, 3)
 
 
 def box_of(x: int) -> int:
@@ -69,6 +72,11 @@ class Step:
     blocks: list[tuple[int, str]] = field(default_factory=list)  # hidden: (cell, 'r'|'c'|'b')
 
     def text(self, level: int) -> str:
+        if level == 3:
+            if self.rule == "naked":
+                return f"{cell_name(self.cell)} r:{self.seen[0]} c:{self.seen[1]} b:{self.seen[2]} => {self.digit}"
+            blk = " ".join(f"{cell_name(y)}:{w}" for y, w in self.blocks)
+            return f"{self.unit[0]}{self.unit[1] + 1} d{self.digit} [{blk}] => {cell_name(self.cell)}"
         s = f"{cell_name(self.cell)}={self.digit}"
         if level >= 1:
             s += " naked" if self.rule == "naked" else f" hidden {self.unit[0]}{self.unit[1] + 1}"

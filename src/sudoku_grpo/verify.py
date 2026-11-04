@@ -7,7 +7,8 @@ Each line is replayed on the puzzle state in order. Per step:
   correct   digit equals the solution digit (only if a solution is given)
   claim     rule tag holds in the current state (naked: exactly one candidate;
             hidden uK: digit fits nowhere else in that unit)          [L1, L2]
-  evidence  the listed justification is exactly true in the current state  [L2]
+  evidence  the listed justification is exactly true in the current state  [L2, L3]
+L3 lines (evidence before the digit) are parsed into the same fields; the rule is implied by the shape.
 Legal steps are applied to the state; illegal ones are skipped (and counted).
 """
 from __future__ import annotations
@@ -21,6 +22,8 @@ STEP_RE = re.compile(
     r"^r(?P<r>[1-9])c(?P<c>[1-9])=(?P<d>[1-9])"
     r"(?:\s+(?P<rule>naked|hidden\s+(?P<uk>[rcb])(?P<ui>[1-9])))?"
     r"(?:\s+(?P<ev>.+?))?\s*$")
+L3_NAKED = re.compile(r"^r(?P<r>[1-9])c(?P<c>[1-9])\s+(?P<ev>r:\d*\s+c:\d*\s+b:\d*)\s*=>\s*(?P<d>[1-9])\s*$")
+L3_HIDDEN = re.compile(r"^(?P<uk>[rcb])(?P<ui>[1-9])\s+d(?P<d>[1-9])\s+(?P<ev>\[[^\]]*\])\s*=>\s*r(?P<r>[1-9])c(?P<c>[1-9])\s*$")
 NAKED_EV = re.compile(r"^r:(?P<r>\d*)\s+c:(?P<c>\d*)\s+b:(?P<b>\d*)$")
 HIDDEN_EV = re.compile(r"^\[(?P<body>[^\]]*)\]$")
 BLOCK_RE = re.compile(r"^r([1-9])c([1-9]):([rcb])$")
@@ -115,7 +118,14 @@ def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> Tra
         sc = StepCheck(line)
         out.steps.append(sc)
         m = STEP_RE.match(line)
-        if not m:
+        if m:
+            rule = "naked" if m["rule"] == "naked" else ("hidden" if m["rule"] else None)
+            uk, ui = m["uk"], m["ui"]
+        elif (m := L3_NAKED.match(line)):
+            rule, uk, ui = "naked", None, None
+        elif (m := L3_HIDDEN.match(line)):
+            rule, uk, ui = "hidden", m["uk"], m["ui"]
+        else:
             continue
         sc.parsed = True
         x, d = (int(m["r"]) - 1) * 9 + int(m["c"]) - 1, int(m["d"])
@@ -125,10 +135,10 @@ def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> Tra
         if sol:
             sc.correct = sol[x] == d
         ev = m["ev"]
-        if m["rule"] == "naked":
+        if rule == "naked":
             sc.claim, sc.evidence = check_naked(g, x, d, ev)
-        elif m["rule"]:
-            sc.claim, sc.evidence = check_hidden(g, x, d, m["uk"], int(m["ui"]) - 1, ev)
+        elif rule == "hidden":
+            sc.claim, sc.evidence = check_hidden(g, x, d, uk, int(ui) - 1, ev)
         elif ev is not None:
             sc.evidence = False  # evidence without a rule tag is malformed
         g[x] = d
