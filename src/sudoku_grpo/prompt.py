@@ -26,6 +26,19 @@ def messages_direct(puzzle81: str) -> list[dict]:
             {"role": "user", "content": user_prompt(puzzle81)}]
 
 
+SYSTEM_THINK = (
+    "You are a Sudoku solver. Solve the puzzle, then give the final completed 9x9 grid "
+    "inside <answer></answer> (9 lines, digits separated by spaces)."
+)
+
+
+def messages_think(puzzle81: str) -> list[dict]:
+    """Native-thinking baseline: the model reasons in its own <think> block (chat template),
+    and only the final grid format is prescribed."""
+    return [{"role": "system", "content": SYSTEM_THINK},
+            {"role": "user", "content": user_prompt(puzzle81)}]
+
+
 def messages(puzzle81: str) -> list[dict]:
     return [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": user_prompt(puzzle81)}]

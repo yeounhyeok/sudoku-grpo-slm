@@ -1,4 +1,8 @@
-# Baseline (Base 모델, 학습 전) — 2026-11-04
+# Baseline (시작 모델, 학습 전) — 2026-11-04
+
+> 용어: "Base" = 파인튜닝 전 시작 모델. 사용 모델은 `Qwen/Qwen3.5-0.8B`·`Qwen3.5-2B` **post-trained(IT)** 체크포인트이며, 순수 사전학습 `-Base`는 사용하지 않았다.
+
+## 1차 — greedy, thinking OFF
 
 환경: eney (MI250X, torch 2.14.1+rocm7.2), HF `generate`, bf16, **greedy**, thinking 모드 OFF(`enable_thinking=False`).
 Qwen3.5의 가속 커널(flash-linear-attention, causal_conv1d)은 미설치라 PyTorch 대체 경로로 돌았다(정확도엔 영향 없음, 속도만 느림).
@@ -32,7 +36,8 @@ Qwen3.5의 가속 커널(flash-linear-attention, causal_conv1d)은 미설치라 
 ## 해석 (추정 포함)
 - 사실(실측): 두 모델 모두 Base 상태에서 스도쿠 완전 정답률은 ≈0%. direct 모드는 무작위 수준, reason 모드는 길이 상한 안에 결론을 못 낸다.
 - 해석(추정): 병목은 (a) 형식 불이행, (b) 추론이 수렴하지 않음, (c) 토큰 효율(숫자·공백이 토큰을 많이 소비해 격자를 다시 쓸 때마다 예산이 소모됨). SFT는 (a)와 (c)를, GRPO는 (b)를 겨냥하는 것이 자연스럽다.
-- 한계: greedy 단일 시드, 샘플링(temperature) 평가 미실시. thinking 모드 ON은 미평가(길이 상한 대비 더 길어질 가능성이 커서 보류). pass@k 미측정.
+- 한계: greedy 단일 시드, 샘플링(temperature) 평가 미실시. thinking 모드 ON은 미평가 → 2차에서 측정. pass@k 미측정.
+- 4096은 우리가 정한 생성 상한이다(모델 `max_position_embeddings`=262,144).
 - 학습 후 비교는 같은 split·같은 채점·같은 greedy 설정으로 해야 공정하다(`scripts/eval.py`).
 
 ## 재현
