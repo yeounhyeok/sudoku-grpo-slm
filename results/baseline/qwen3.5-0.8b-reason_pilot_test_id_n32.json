@@ -1,0 +1,56 @@
+{
+  "run": "qwen3.5-0.8b_pilot_test_id_n32",
+  "model": "/root/sudoku-grpo-slm/models/qwen3.5-0.8b",
+  "split": "test_id",
+  "thinking": false,
+  "max_new_tokens": 4096,
+  "decoding": "greedy",
+  "seconds": 204,
+  "overall": {
+    "n": 32,
+    "exact": 0.0,
+    "valid": 0.0,
+    "format": 0.0,
+    "cell_acc": 0.0,
+    "truncated": 1.0,
+    "mean_new_tokens": 4096.0
+  },
+  "by_group": {
+    "easy": {
+      "n": 3,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "mean_new_tokens": 4096.0
+    },
+    "expert": {
+      "n": 4,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "mean_new_tokens": 4096.0
+    },
+    "hard": {
+      "n": 10,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "mean_new_tokens": 4096.0
+    },
+    "medium": {
+      "n": 15,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "mean_new_tokens": 4096.0
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# Baseline (Base 모델, 학습 전) — 2026-11-04
+
+환경: eney (MI250X, torch 2.14.1+rocm7.2), HF `generate`, bf16, **greedy**, thinking 모드 OFF(`enable_thinking=False`).
+Qwen3.5의 가속 커널(flash-linear-attention, causal_conv1d)은 미설치라 PyTorch 대체 경로로 돌았다(정확도엔 영향 없음, 속도만 느림).
+채점: `exact`(81칸 완전 일치) / `valid`(행·열·박스 충돌 없음 + 단서 보존) / `format`(`<answer>`에 81칸) / `cell_acc`(원래 빈칸 중 맞은 비율).
+원시 요약 JSON: `results/baseline/`. 생성 샘플은 용량 때문에 커밋하지 않았다(`outputs/`, git 제외).
+
+## 1. Direct (추론 없이 격자만 출력, 최대 400토큰, n=200)
+| 모델 | split | exact | valid | format | cell_acc | 평균 출력 토큰 |
+|---|---|---|---|---|---|---|
+| Qwen3.5-0.8B | test_id | 0.000 | 0.000 | 0.990 | 0.114 | 166 |
+| Qwen3.5-0.8B | test_ood | 0.000 | 0.000 | 0.970 | 0.106 | 167 |
+| Qwen3.5-2B | test_id | 0.000 | 0.000 | 1.000 | 0.131 | 165 |
+| Qwen3.5-2B | test_ood | 0.000 | 0.000 | 1.000 | 0.108 | 169 |
+
+- `cell_acc ≈ 0.11`은 **1~9를 무작위로 찍을 때의 기대값(1/9 = 0.111)** 과 같다 → 직접 출력 baseline은 사실상 무작위 수준.
+- 난이도(tier / rating 구간)별로 의미 있는 차이 없음(0.10~0.15, n이 작아 노이즈).
+- 모델 크기 0.8B→2B 효과는 test_id에서 +0.017(칸 정확도)로 미미.
+
+## 2. Reason (`<reasoning>` → `<answer>` 프롬프트, 최대 4096토큰, test_id 파일럿 n=32)
+| 모델 | exact | format | 잘림(truncated) | 평균 출력 토큰 |
+|---|---|---|---|---|
+| Qwen3.5-0.8B | 0/32 | 0.00 | 100% | 4096 |
+| Qwen3.5-2B | 1/32 (easy 1) | 0.03 | 97% | 4074 |
+
+- 0.8B: `<reasoning>`/`<answer>` 태그를 한 번도 쓰지 않고 "Step 1: Analyze Row 1 …"식으로 길게 풀다가 "Wait, 중복이다…" 자기점검을 반복, 결론에 도달하지 못함.
+  반복 루프는 아님(마지막 200줄 중 최다 반복 줄 4~23회, 출력 6.5k~8.5k자).
+- 2B: 32개 중 31개가 4096토큰에서 잘림. 1개만 3401토큰에 풀이 완료(easy).
+- 1024토큰(8문제 스모크)에서도 0.8B는 8/8 잘림. 상한을 늘려도 "답까지 가지 못하는" 양상이 바뀌지 않음.
+- **n=32 파일럿이라 신뢰구간이 넓다**(1/32 = 3.1%는 통계적으로 0과 구분 어려움). 본 평가 수치로 쓰지 말 것.
+
+## 해석 (추정 포함)
+- 사실(실측): 두 모델 모두 Base 상태에서 스도쿠 완전 정답률은 ≈0%. direct 모드는 무작위 수준, reason 모드는 길이 상한 안에 결론을 못 낸다.
+- 해석(추정): 병목은 (a) 형식 불이행, (b) 추론이 수렴하지 않음, (c) 토큰 효율(숫자·공백이 토큰을 많이 소비해 격자를 다시 쓸 때마다 예산이 소모됨). SFT는 (a)와 (c)를, GRPO는 (b)를 겨냥하는 것이 자연스럽다.
+- 한계: greedy 단일 시드, 샘플링(temperature) 평가 미실시. thinking 모드 ON은 미평가(길이 상한 대비 더 길어질 가능성이 커서 보류). pass@k 미측정.
+- 학습 후 비교는 같은 split·같은 채점·같은 greedy 설정으로 해야 공정하다(`scripts/eval.py`).
+
+## 재현
+```bash
+python scripts/eval.py --model qwen3.5-0.8b --split test_id --n 200 --batch-size 50 --mode direct
+python scripts/eval.py --model qwen3.5-2b   --split test_id --n 32  --mode reason --tag _pilot
+```
+(`--n`은 시드 0으로 부분 샘플링. 전체 split을 쓰려면 `--n 0`.)
