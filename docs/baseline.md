@@ -2,6 +2,17 @@
 
 > 용어: "Base" = 파인튜닝 전 시작 모델. 사용 모델은 `Qwen/Qwen3.5-0.8B`·`Qwen3.5-2B` **post-trained(IT)** 체크포인트이며, 순수 사전학습 `-Base`는 사용하지 않았다.
 
+## 🔒 평가 프로토콜 (고정, 11/4) — 학습 전·후 동일 적용
+
+- 명령: `scripts/eval.py --mode think --n 64 --seed 0` (split: test_id, test_ood). 시작 모델과 SFT·GRPO 체크포인트 모두 **이 명령 그대로**
+- 같은 문제: `random.Random(0)`로 고른 같은 64문제 (seed 고정이라 매번 동일)
+- 같은 프롬프트·템플릿: `SYSTEM_THINK` + chat template thinking ON, 채점은 `</think>` 뒤 `<answer>`만
+- 같은 디코딩: T=1.0, top_p=0.95, top_k=20, min_p=0, presence_penalty=1.5, 상한 32,768, 생성 seed 0, 1샘플(pass@1)
+- 같은 채점: exact(헤드라인) / valid / format / cell_acc + 토큰 수·잘림·think 종료율
+- **학습 설계 제약**: SFT trace는 `<think>` 블록 안에 넣고 최종 격자는 `<answer>`로 → 학습 후 모델도 같은 thinking ON 경로로 평가 가능
+- 보고: 정답률과 함께 **평균 생성 토큰**도 비교 (같은 32k 예산에서 얼마나 짧게 푸는지)
+- 한계: n=64는 신뢰구간이 넓음(대략 ±10%p대, 추정). 최종 발표에서 n을 키우면 시작 모델도 같은 n으로 재측정
+
 ## 1차 — greedy, thinking OFF
 
 환경: eney (MI250X, torch 2.14.1+rocm7.2), HF `generate`, bf16, **greedy**, thinking 모드 OFF(`enable_thinking=False`).
