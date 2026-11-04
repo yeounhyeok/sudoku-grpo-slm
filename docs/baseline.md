@@ -65,6 +65,7 @@ python scripts/eval.py --model qwen3.5-2b   --split test_id --n 32  --mode reaso
 - 엔진: vLLM 0.33.0+rocm72, eager (MI250/gfx90a에서 HIP graph는 FULL·PIECEWISE 모두 `HSA_STATUS_ERROR_INVALID_PACKET_FORMAT`로 크래시)
 - 디코딩: T=1.0, top_p=0.95, top_k=20, min_p=0, presence_penalty=1.5, max 32,768, seed 0, 1 sample
 - 원시 결과: `results/baseline/*-think-qwen-think-vllm_*.json`
+- 재현: `scripts/setup_vllm.sh` (vLLM 환경) → `scripts/run_baseline.sh`
 
 | 모델 | split | exact | 잘림(32k) | 평균 토큰 |
 |---|---|---|---|---|
