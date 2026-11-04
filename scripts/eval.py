@@ -2,7 +2,7 @@
 """Evaluate a model (base or fine-tuned) on the Sudoku splits with HF generate.
 
   python scripts/eval.py --model qwen3.5-0.8b --split test_id --n 200 --mode direct
-  python scripts/eval.py --model qwen3.5-2b --split test_ood --n 64 --mode think   # native thinking,
+  python scripts/eval.py --model qwen3.5-2b --split test_ood --n 64 --mode think --backend vllm  # native thinking,
         # Qwen3.5 model-card sampling (T=1.0, top_p=0.95, top_k=20, presence_penalty=1.5), 32768 tokens
   python scripts/eval.py --model outputs/sft-0.8b/final --split test_id      # a checkpoint dir
 
@@ -104,6 +104,12 @@ def main() -> None:
     for k in ("temperature", "top_p", "top_k", "min_p", "presence_penalty"):
         ap.add_argument("--" + k.replace("_", "-"), type=float, default=None, help="override preset")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--backend", choices=["hf", "vllm"], default="hf",
+                    help="hf: transformers generate; vllm: paged-KV engine (much faster for long thinking)")
+    ap.add_argument("--gpu-mem", type=float, default=0.85, help="vLLM gpu_memory_utilization")
+    ap.add_argument("--eager", action="store_true", help="vLLM enforce_eager (no HIP graphs)")
+    ap.add_argument("--cg-mode", default=None, help="vLLM cudagraph_mode override, e.g. PIECEWISE")
+    ap.add_argument("--no-prefix-cache", action="store_true", help="vLLM disable prefix caching")
     ap.add_argument("--tag", default="")
     args = ap.parse_args()
 
@@ -124,71 +130,122 @@ def main() -> None:
     make_msgs = {"direct": prompt.messages_direct, "reason": prompt.messages,
                  "think": prompt.messages_think}[args.mode]
     path, name = resolve_model(args.model)
-    recs = [json.loads(l) for l in (ROOT / "data/processed" / f"{args.split}.jsonl").open()]
-    if args.n and args.n < len(recs):
-        recs = random.Random(args.seed).sample(recs, args.n)
+    splits = args.split.split(",")
+    if args.backend == "hf" and len(splits) > 1:
+        raise SystemExit("multiple splits in one call need --backend vllm")
     think_tag = "-think" if args.thinking and args.mode != "think" else ""
     samp_tag = "" if preset == "greedy" and not sample else f"-{preset}"
-    run = f"{name}-{args.mode}{think_tag}{samp_tag}{args.tag}_{args.split}_n{len(recs)}"
-    out = ROOT / "outputs/eval" / run
-    out.mkdir(parents=True, exist_ok=True)
+    be_tag = "-vllm" if args.backend == "vllm" else ""
+    jobs = []  # one job per split: same subset/seed/run name as a single-split call
+    for sp in splits:
+        recs = [json.loads(l) for l in (ROOT / "data/processed" / f"{sp}.jsonl").open()]
+        if args.n and args.n < len(recs):
+            recs = random.Random(args.seed).sample(recs, args.n)
+        run = f"{name}-{args.mode}{think_tag}{samp_tag}{be_tag}{args.tag}_{sp}_n{len(recs)}"
+        out = ROOT / "outputs/eval" / run
+        out.mkdir(parents=True, exist_ok=True)
+        jobs.append({"split": sp, "recs": recs, "run": run, "out": out, "rows": [],
+                     "f": (out / "samples.jsonl").open("w")})
 
     tok = AutoTokenizer.from_pretrained(path)
     tok.padding_side = "left"
-    model = AutoModelForCausalLM.from_pretrained(path, dtype=torch.bfloat16).to("cuda").eval()
-    print(f"loaded {path} ({type(model).__name__}), {len(recs)} rows, device={torch.cuda.get_device_name(0)}", flush=True)
-
-    texts = [tok.apply_chat_template(make_msgs(r["puzzle"]), tokenize=False,
-                                     add_generation_prompt=True, enable_thinking=args.thinking) for r in recs]
-    print(f"run={run} decoding={'sample' if sample else 'greedy'} {dec} max_new_tokens={args.max_new_tokens}", flush=True)
+    for jb in jobs:
+        jb["texts"] = [tok.apply_chat_template(make_msgs(r["puzzle"]), tokenize=False, add_generation_prompt=True,
+                                               enable_thinking=args.thinking) for r in jb["recs"]]
+    print(f"runs={[jb['run'] for jb in jobs]} backend={args.backend} decoding={'sample' if sample else 'greedy'} "
+          f"{dec} max_new_tokens={args.max_new_tokens}", flush=True)
     t0 = time.time()
-    rows = []
-    fsamp = (out / "samples.jsonl").open("w")  # written per batch so long runs keep partial results
-    for i in range(0, len(recs), args.batch_size):
-        b = recs[i:i + args.batch_size]
-        enc = tok(texts[i:i + args.batch_size], return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
-        gkw = dict(max_new_tokens=args.max_new_tokens, pad_token_id=tok.pad_token_id, do_sample=sample)
-        if sample:
-            torch.manual_seed(args.seed + i)
-            gkw.update(temperature=dec["temperature"], top_p=dec["top_p"], top_k=dec["top_k"] or None,
-                       min_p=dec["min_p"] or None)
-        else:
-            gkw.update(temperature=None, top_p=None, top_k=None)
-        if dec["presence_penalty"]:
-            gkw["logits_processor"] = [presence_penalty_processor(dec["presence_penalty"], enc.input_ids.shape[1])]
-        with torch.no_grad():
-            gen = model.generate(**enc, **gkw)
-        for r, g in zip(b, gen[:, enc.input_ids.shape[1]:]):
-            n_tok = int((g != tok.pad_token_id).sum())
-            text = tok.decode(g[g != tok.pad_token_id], skip_special_tokens=False)
+
+    def record(jb, b, gens):
+        for r, (text, n_tok, trunc) in zip(b, gens):
             for sp in ("<|im_end|>", "<|endoftext|>"):
                 text = text.replace(sp, "")
             final, closed = split_thinking(text) if args.thinking else (text, True)
-            s = score(r, final)
             row = {"id": r["id"], "grp": r.get("tier") or r.get("bin"), "new_tokens": n_tok,
-                   "truncated": n_tok >= args.max_new_tokens, "think_closed": closed, **s, "output": text}
-            rows.append(row)
-            fsamp.write(json.dumps(row, ensure_ascii=False) + "\n")
-        fsamp.flush()
-        done = len(rows)
+                   "truncated": trunc, "think_closed": closed, **score(r, final), "output": text}
+            jb["rows"].append(row)
+            jb["f"].write(json.dumps(row, ensure_ascii=False) + "\n")
+        jb["f"].flush()
+        rows = jb["rows"]
         ex = sum(x["exact"] for x in rows)
-        print(f"[{done}/{len(recs)}] exact={ex}/{done} elapsed={time.time()-t0:.0f}s", flush=True)
-    fsamp.close()
+        print(f"[{jb['split']} {len(rows)}/{len(jb['recs'])}] exact={ex}/{len(rows)} elapsed={time.time()-t0:.0f}s",
+              flush=True)
+
+    if args.backend == "vllm":
+        # vLLM: paged KV cache + continuous batching + Triton GDN kernels (no per-step KV copy).
+        # On MI250 (gfx90a) HIP graphs crash (HSA_STATUS_ERROR_INVALID_PACKET_FORMAT) -> use --eager.
+        from vllm import LLM, SamplingParams
+        texts = [t for jb in jobs for t in jb["texts"]]
+        plen = max(len(tok(t, add_special_tokens=False).input_ids) for t in texts)
+        llm = LLM(model=path, dtype="bfloat16", seed=args.seed, max_model_len=plen + args.max_new_tokens + 16,
+                  gpu_memory_utilization=args.gpu_mem, limit_mm_per_prompt={"image": 0, "video": 0},
+                  enforce_eager=args.eager, enable_prefix_caching=not args.no_prefix_cache,
+                  **({"compilation_config": {"cudagraph_mode": args.cg_mode}} if args.cg_mode else {}))
+        print(f"vllm loaded in {time.time()-t0:.0f}s, device={torch.cuda.get_device_name(0)}", flush=True)
+        t0 = time.time()
+        sps = [SamplingParams(n=1, max_tokens=args.max_new_tokens, skip_special_tokens=False,
+                              temperature=dec["temperature"], top_p=dec["top_p"] if sample else 1.0,
+                              top_k=(dec["top_k"] or -1) if sample else -1, min_p=dec["min_p"],
+                              presence_penalty=dec["presence_penalty"], seed=args.seed + j)
+               for jb in jobs for j in range(len(jb["recs"]))]  # seed = per-split index
+        res = llm.generate(texts, sps)
+        k = 0
+        for jb in jobs:
+            m = len(jb["recs"])
+            record(jb, jb["recs"], [(o.outputs[0].text, len(o.outputs[0].token_ids),
+                                     o.outputs[0].finish_reason == "length") for o in res[k:k + m]])
+            k += m
+    else:
+        jb = jobs[0]
+        recs, texts = jb["recs"], jb["texts"]
+        model = AutoModelForCausalLM.from_pretrained(path, dtype=torch.bfloat16).to("cuda").eval()
+        print(f"loaded {path} ({type(model).__name__}), {len(recs)} rows, device={torch.cuda.get_device_name(0)}", flush=True)
+        for i in range(0, len(recs), args.batch_size):
+            b = recs[i:i + args.batch_size]
+            enc = tok(texts[i:i + args.batch_size], return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
+            gkw = dict(max_new_tokens=args.max_new_tokens, pad_token_id=tok.pad_token_id, do_sample=sample)
+            if sample:
+                torch.manual_seed(args.seed + i)
+                gkw.update(temperature=dec["temperature"], top_p=dec["top_p"], top_k=dec["top_k"] or None,
+                           min_p=dec["min_p"] or None)
+            else:
+                gkw.update(temperature=None, top_p=None, top_k=None)
+            if dec["presence_penalty"]:
+                gkw["logits_processor"] = [presence_penalty_processor(dec["presence_penalty"], enc.input_ids.shape[1])]
+            with torch.no_grad():
+                gen = model.generate(**enc, **gkw)
+            gens = []
+            for g in gen[:, enc.input_ids.shape[1]:]:
+                n_tok = int((g != tok.pad_token_id).sum())
+                gens.append((tok.decode(g[g != tok.pad_token_id], skip_special_tokens=False), n_tok,
+                             n_tok >= args.max_new_tokens))
+            record(jb, b, gens)
+    seconds = round(time.time() - t0)
 
     def agg(rs):
         n = len(rs)
-        return {"n": n, **{k: round(sum(float(x[k]) for x in rs) / n, 4) for k in ("exact", "valid", "format", "cell_acc", "truncated", "think_closed")},
+        return {"n": n, **{k: round(sum(float(x[k]) for x in rs) / n, 4)
+                           for k in ("exact", "valid", "format", "cell_acc", "truncated", "think_closed")},
                 "mean_new_tokens": round(sum(x["new_tokens"] for x in rs) / n, 1)}
 
-    by = defaultdict(list)
-    for x in rows:
-        by[x["grp"]].append(x)
-    summary = {"run": run, "model": path, "split": args.split, "mode": args.mode, "thinking": args.thinking,
-               "max_new_tokens": args.max_new_tokens, "decoding": ("sample" if sample else "greedy"),
-               "preset": preset, "sampling": dec, "seed": args.seed, "seconds": round(time.time() - t0),
-               "overall": agg(rows), "by_group": {k: agg(v) for k, v in sorted(by.items())}}
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    for jb in jobs:
+        jb["f"].close()
+        rows = jb["rows"]
+        by = defaultdict(list)
+        for x in rows:
+            by[x["grp"]].append(x)
+        # token-budget curve from the single max-budget run: solved AND finished within B tokens
+        budgets = [b for b in (1024, 2048, 4096, 8192, 16384, 32768) if b <= args.max_new_tokens]
+        curve = {str(b): round(sum(1 for x in rows if x["exact"] and x["new_tokens"] <= b) / len(rows), 4)
+                 for b in budgets}
+        summary = {"run": jb["run"], "model": path, "split": jb["split"], "mode": args.mode, "thinking": args.thinking,
+                   "max_new_tokens": args.max_new_tokens, "decoding": ("sample" if sample else "greedy"),
+                   "backend": args.backend, "preset": preset, "sampling": dec, "seed": args.seed,
+                   "seconds": seconds, "seconds_note": "wall time of the whole call (all splits together)",
+                   "overall": agg(rows), "exact_within_budget": curve,
+                   "by_group": {k: agg(v) for k, v in sorted(by.items())}}
+        (jb["out"] / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+        print(json.dumps({k: summary[k] for k in ("run", "overall", "exact_within_budget")}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

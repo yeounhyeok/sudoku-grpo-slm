@@ -12,7 +12,7 @@
 | 모델 선정·고정 | ✅ `configs/models.toml` |
 | 데이터 준비(분할·검증) | ✅ `scripts/prepare_data.py` |
 | 프롬프트/채점 유틸 | ✅ `src/sudoku_grpo/` (단위 테스트 통과) |
-| Baseline 평가 | ✅ 1차(직접출력 n=200 / 추론 파일럿 n=32) → [docs/baseline.md](docs/baseline.md). 시작 모델(IT, thinking OFF)은 ≈0%. 2차(thinking ON, 32k) 진행 중 |
+| Baseline 평가 | ✅ 1차(직접출력 n=200 / 추론 파일럿 n=32) → [docs/baseline.md](docs/baseline.md). 시작 모델(IT, thinking OFF)은 ≈0%. 공식(2차, thinking ON·32k): 2B test_id 21.9%, OOD·0.8B 0% |
 | SFT 데이터(풀이 trace) 생성 | ⬜ |
 | SFT / GRPO 학습 | ⬜ |
 | 보상 설계(G-RaR judge 포함 여부) | ⬜ 미정 |

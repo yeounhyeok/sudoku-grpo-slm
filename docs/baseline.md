@@ -57,3 +57,27 @@ python scripts/eval.py --model qwen3.5-0.8b --split test_id --n 200 --batch-size
 python scripts/eval.py --model qwen3.5-2b   --split test_id --n 32  --mode reason --tag _pilot
 ```
 (`--n`은 시드 0으로 부분 샘플링. 전체 split을 쓰려면 `--n 0`.)
+
+
+## 2차 (공식) — thinking ON, Qwen3.5 모델카드 sampling, 32k, vLLM
+
+- 명령: `/opt/vllm-venv/bin/python scripts/eval.py --model <M> --mode think --backend vllm --eager --no-prefix-cache --split test_id,test_ood --n 64`
+- 엔진: vLLM 0.33.0+rocm72, eager (MI250/gfx90a에서 HIP graph는 FULL·PIECEWISE 모두 `HSA_STATUS_ERROR_INVALID_PACKET_FORMAT`로 크래시)
+- 디코딩: T=1.0, top_p=0.95, top_k=20, min_p=0, presence_penalty=1.5, max 32,768, seed 0, 1 sample
+- 원시 결과: `results/baseline/*-think-qwen-think-vllm_*.json`
+
+| 모델 | split | exact | 잘림(32k) | 평균 토큰 |
+|---|---|---|---|---|
+| 2B | test_id | **14/64 (21.9%)** | 78% | 30,159 |
+| 2B | test_ood | 0/64 | 100% | 32,768 |
+| 0.8B | test_id | 0/64 | 100% | 32,768 |
+| 0.8B | test_ood | 0/64 | 100% | 32,768 |
+
+- 2B test_id 난이도별: easy 7/8 · medium 7/24 · hard 0/27 · expert 0/5
+- 2B: thinking을 끝낸 14개는 **전부 정답**(끝냈는데 오답 0). 정답 trace 길이 7.7k~29k 토큰
+- 토큰 예산별 정답률(2B test_id, 같은 런에서 사후 계산): ≤4k 0% · ≤8k 1.6% · ≤16k 4.7% · ≤32k 21.9%
+- 0.8B는 64/64 모두 32k에서 thinking 중 잘림
+- 소요: 2B 2,751초, 0.8B 2,636초 (vLLM eager, 각 128문제 동시)
+- 해석: 1차의 ≈0%는 상당 부분 **4096 상한 탓**이었음(2B 한정). 파인튜닝 목표 = ① hard·expert·OOD 정답률 ② 토큰 수 2~3만 → ~1k로 축소
+
+이 설정이 학습 전·후 비교의 고정 프로토콜이다(위 🔒 절 참고, 엔진도 동일하게 유지).

@@ -1,0 +1,81 @@
+{
+  "run": "qwen3.5-2b-think-qwen-think-vllm_test_ood_n64",
+  "model": "/root/sudoku-grpo-slm/models/qwen3.5-2b",
+  "split": "test_ood",
+  "mode": "think",
+  "thinking": true,
+  "max_new_tokens": 32768,
+  "decoding": "sample",
+  "backend": "vllm",
+  "preset": "qwen-think",
+  "sampling": {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5
+  },
+  "seed": 0,
+  "seconds": 2751,
+  "seconds_note": "wall time of the whole call (all splits together)",
+  "overall": {
+    "n": 64,
+    "exact": 0.0,
+    "valid": 0.0,
+    "format": 0.0,
+    "cell_acc": 0.0,
+    "truncated": 1.0,
+    "think_closed": 0.0,
+    "mean_new_tokens": 32768.0
+  },
+  "exact_within_budget": {
+    "1024": 0.0,
+    "2048": 0.0,
+    "4096": 0.0,
+    "8192": 0.0,
+    "16384": 0.0,
+    "32768": 0.0
+  },
+  "by_group": {
+    "r0": {
+      "n": 21,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    },
+    "r100p": {
+      "n": 11,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    },
+    "r10_99": {
+      "n": 13,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    },
+    "r1_9": {
+      "n": 19,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    }
+  }
+}

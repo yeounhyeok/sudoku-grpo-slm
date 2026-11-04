@@ -1,0 +1,81 @@
+{
+  "run": "qwen3.5-2b-think-qwen-think-vllm_test_id_n64",
+  "model": "/root/sudoku-grpo-slm/models/qwen3.5-2b",
+  "split": "test_id",
+  "mode": "think",
+  "thinking": true,
+  "max_new_tokens": 32768,
+  "decoding": "sample",
+  "backend": "vllm",
+  "preset": "qwen-think",
+  "sampling": {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5
+  },
+  "seed": 0,
+  "seconds": 2751,
+  "seconds_note": "wall time of the whole call (all splits together)",
+  "overall": {
+    "n": 64,
+    "exact": 0.2188,
+    "valid": 0.2188,
+    "format": 0.2188,
+    "cell_acc": 0.2188,
+    "truncated": 0.7812,
+    "think_closed": 0.2188,
+    "mean_new_tokens": 30159.1
+  },
+  "exact_within_budget": {
+    "1024": 0.0,
+    "2048": 0.0,
+    "4096": 0.0,
+    "8192": 0.0156,
+    "16384": 0.0469,
+    "32768": 0.2188
+  },
+  "by_group": {
+    "easy": {
+      "n": 8,
+      "exact": 0.875,
+      "valid": 0.875,
+      "format": 0.875,
+      "cell_acc": 0.875,
+      "truncated": 0.125,
+      "think_closed": 0.875,
+      "mean_new_tokens": 18533.6
+    },
+    "expert": {
+      "n": 5,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    },
+    "hard": {
+      "n": 27,
+      "exact": 0.0,
+      "valid": 0.0,
+      "format": 0.0,
+      "cell_acc": 0.0,
+      "truncated": 1.0,
+      "think_closed": 0.0,
+      "mean_new_tokens": 32768.0
+    },
+    "medium": {
+      "n": 24,
+      "exact": 0.2917,
+      "valid": 0.2917,
+      "format": 0.2917,
+      "cell_acc": 0.2917,
+      "truncated": 0.7083,
+      "think_closed": 0.2917,
+      "mean_new_tokens": 30555.8
+    }
+  }
+}
