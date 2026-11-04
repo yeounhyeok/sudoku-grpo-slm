@@ -72,3 +72,7 @@ docs/       datasets.md
 - beta3/GridCorpus_9M_Sudoku_Puzzles_Enriched — CC BY 4.0
 - sapientinc/sudoku-extreme — 라이선스 태그 없음(데이터 카드의 사용 지침: train만 학습, test로 평가)
 - 코드: MIT (`LICENSE`)
+
+## 학습 커널 (Qwen3.5 GDN)
+
+`scripts/setup_kernels.sh` — flash-linear-attention 0.6.0 + causal-conv1d 1.7.0(HIP 빌드, C++20 패치). MI250 2B 학습 처리량 LoRA ×1.76, Full FT ×1.97, 수치 동일(`results/bench/train_kernels_2b.jsonl`, `scripts/bench_train.py`).
