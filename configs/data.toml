@@ -1,0 +1,53 @@
+seed = 20261104
+scan_rows = 250000   # beta3 CSV is 5.7 GB (~1.1 KB/row): stream only the head (≈270 MB). Expert tier is ~1% of rows.
+
+[beta3]   # in-distribution source: SFT / RL / val / in-dist test
+repo = "beta3/GridCorpus_9M_Sudoku_Puzzles_Enriched"   # cc-by-4.0
+file = "gridcorpus.csv"
+
+# Per-split quotas by difficulty_tier. Splits are disjoint by *solution grid* (stricter than by puzzle).
+[beta3.quota.sft_train]
+easy = 3000
+medium = 9000
+hard = 6000
+expert = 800
+[beta3.quota.rl_train]
+easy = 500
+medium = 1500
+hard = 1500
+expert = 200
+[beta3.quota.val]
+easy = 50
+medium = 150
+hard = 150
+expert = 20
+[beta3.quota.test_id]
+easy = 100
+medium = 300
+hard = 300
+expert = 60
+
+[sapient]  # out-of-distribution hard test (official test.csv only; train.csv is never used)
+repo = "sapientinc/sudoku-extreme"
+file = "test.csv"
+# rating = tdoku backtracks. Bins are [lo, hi).
+[[sapient.bins]]
+name = "r0"
+lo = 0
+hi = 1
+n = 250
+[[sapient.bins]]
+name = "r1_9"
+lo = 1
+hi = 10
+n = 250
+[[sapient.bins]]
+name = "r10_99"
+lo = 10
+hi = 100
+n = 250
+[[sapient.bins]]
+name = "r100p"
+lo = 100
+hi = 1000000000
+n = 250

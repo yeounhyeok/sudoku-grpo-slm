@@ -14,3 +14,8 @@
 | SakanaAI/sudoku-bench-nikoli | 100 | cc-by-4.0 | 변형 규칙 퍼즐, 이번 과제 범위 밖 |
 
 미확인: 각 데이터의 중복·train/test 누수, 풀이(reasoning) 품질.
+
+## 채택 (2026-11-04)
+- 학습/검증/ID 테스트: beta3/GridCorpus (난이도 tier·메타데이터, cc-by-4.0)
+- OOD 테스트: sapientinc/sudoku-extreme `test.csv` (rating 구간 층화)
+- 풀이 trace(SFT 정답 추론)는 공개 데이터가 마땅치 않아 솔버로 직접 생성할 예정 (미구현)

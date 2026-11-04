@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Secrets / env
+.env
+.env.*
+*.pem
+*.key
+.netrc
+
+# Data & models (large / license-sensitive: regenerate with scripts/)
+data/raw/
+data/processed/
+models/
+.cache/
+hf_cache/
+
+# Training artifacts
+outputs/
+checkpoints/
+runs/
+wandb/
+logs/
+*.log
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,22 @@
+{
+  "rl_train": {
+    "rows": 3700,
+    "sha256": "7c6e8ba708b0c2410e5f152582ce40f98408149db705e816fea3c797ace98ae2"
+  },
+  "sft_train": {
+    "rows": 18800,
+    "sha256": "27de9f5a1783a6f5420f01902660b54eef5535b8a5c7d72e40a4c5655eeabccb"
+  },
+  "test_id": {
+    "rows": 760,
+    "sha256": "e13882d5293f960f2109f8cca6a0c8ddbc64eca20aad9ade02f32e7dbc9d0948"
+  },
+  "test_ood": {
+    "rows": 1000,
+    "sha256": "7b8dc9026244aa1c07233a0999ff1b40e1287fc87d14d94bc543796899445756"
+  },
+  "val": {
+    "rows": 370,
+    "sha256": "452e3b833504f76cbfa1bf6cf6e89d9993e995be392ff9b739d46421184967b2"
+  }
+}

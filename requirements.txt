@@ -1,0 +1,9 @@
+# Torch is installed separately by scripts/setup_env.sh (backend-specific wheel index).
+# Versions = latest on PyPI when checked (2026-11-04). Not yet verified together on ROCm/eney.
+transformers>=5.0
+trl>=1.0
+peft>=0.17
+accelerate>=1.0
+datasets>=4.0
+huggingface_hub>=1.0
+wandb

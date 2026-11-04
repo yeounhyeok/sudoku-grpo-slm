@@ -1,0 +1,33 @@
+# Base model candidates. Revisions are pinned to the HF commit SHA checked on 2026-11-04.
+# Rule of the course notice: base model must be <= 4B parameters (public).
+
+[[model]]
+key = "qwen3.5-0.8b"
+repo = "Qwen/Qwen3.5-0.8B"          # post-trained release
+revision = "2fc06364715b967f1860aea9cf38778875588b17"
+params = 873438784                   # safetensors total (incl. vision encoder)
+license = "apache-2.0"
+
+[[model]]
+key = "qwen3.5-2b"
+repo = "Qwen/Qwen3.5-2B"
+revision = "15852e8c16360a2fea060d615a32b45270f8a8fc"
+params = 2274069824
+license = "apache-2.0"
+
+# Optional: pre-trained-only checkpoints (for a "Base vs post-trained start" ablation)
+[[model]]
+key = "qwen3.5-0.8b-base"
+repo = "Qwen/Qwen3.5-0.8B-Base"
+revision = "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68"
+params = 873438784
+license = "apache-2.0"
+optional = true
+
+[[model]]
+key = "qwen3.5-2b-base"
+repo = "Qwen/Qwen3.5-2B-Base"
+revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+params = 2274069824
+license = "apache-2.0"
+optional = true
