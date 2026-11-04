@@ -20,6 +20,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Qwen3.5 language model linears: Gated DeltaNet (in_proj_*, out_proj), full attention (q/k/v/o), MLP
+LM_TARGETS = (r".*\.language_model\.layers\.\d+\.(linear_attn\.(in_proj_qkv|in_proj_z|in_proj_a|in_proj_b|out_proj)"
+              r"|self_attn\.(q_proj|k_proj|v_proj|o_proj)|mlp\.(gate_proj|up_proj|down_proj))")
 
 
 def render(tok, msgs: list[dict]) -> dict:
@@ -43,6 +46,9 @@ def main() -> None:
     ap.add_argument("--accum", type=int, default=8, help="grad accumulation (effective = batch*accum)")
     ap.add_argument("--max-len", type=int, default=2048)
     ap.add_argument("--lora-r", type=int, default=64)
+    ap.add_argument("--lora-targets", choices=["lm", "all-linear"], default="lm",
+                    help="lm = every linear layer of the language model only (default); all-linear = PEFT preset, "
+                         "also wraps the unused vision tower (S1 used this; those adapters stay at B=0)")
     ap.add_argument("--eval-steps", type=int, default=50)
     ap.add_argument("--n-train", type=int, default=0, help="subsample train rows (0 = all)")
     ap.add_argument("--seed", type=int, default=0)
@@ -77,7 +83,8 @@ def main() -> None:
     if args.mode == "lora":
         from peft import LoraConfig
         peft_config = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.0,
-                                 target_modules="all-linear", task_type="CAUSAL_LM")
+                                 target_modules=LM_TARGETS if args.lora_targets == "lm" else "all-linear",
+                                 task_type="CAUSAL_LM")
     lr = args.lr or (2e-4 if args.mode == "lora" else 1e-5)
     cfg = SFTConfig(
         output_dir=str(out), seed=args.seed, bf16=True,
@@ -116,7 +123,8 @@ def main() -> None:
     meta = {"run": run, "model": path, "level": args.level, "mode": args.mode, "lr": lr, "epochs": args.epochs,
             "max_steps": args.max_steps, "micro_batch": args.batch, "accum": args.accum,
             "effective_batch": args.batch * args.accum, "max_len": args.max_len, "optimizer": "adamw_torch_fused",
-            "lora_r": args.lora_r if args.mode == "lora" else None, "trainable_params": n_tr, "total_params": n_all,
+            "lora_r": args.lora_r if args.mode == "lora" else None,
+            "lora_targets": args.lora_targets if args.mode == "lora" else None, "n_train_arg": args.n_train, "trainable_params": n_tr, "total_params": n_all,
             "train_rows": len(train), "seconds": round(secs), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}
