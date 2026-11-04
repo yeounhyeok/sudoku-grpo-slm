@@ -83,7 +83,7 @@ def main() -> None:
         output_dir=str(out), seed=args.seed, bf16=True,
         num_train_epochs=args.epochs, max_steps=args.max_steps,
         per_device_train_batch_size=args.batch, per_device_eval_batch_size=args.batch,
-        gradient_accumulation_steps=args.accum, learning_rate=lr, lr_scheduler_type="cosine", warmup_ratio=0.03,
+        gradient_accumulation_steps=args.accum, learning_rate=lr, lr_scheduler_type="cosine", warmup_steps=0.03,  # float <1 = ratio (transformers 5)
         weight_decay=0.0, optim="adamw_torch_fused", max_grad_norm=1.0,
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
         max_length=args.max_len, packing=False, completion_only_loss=True,
@@ -96,13 +96,13 @@ def main() -> None:
                          processing_class=tok, peft_config=peft_config)
 
     # show exactly what the model is trained on (first example): masked prompt vs supervised completion
-    ex = trainer.train_dataset[0]
-    ids, mask = ex["input_ids"], ex.get("completion_mask")
-    if mask is not None:
-        sup = [t for t, m in zip(ids, mask) if m]
-        print("SUPERVISED_HEAD:", repr(tok.decode(sup[:40])), flush=True)
-        print("SUPERVISED_TAIL:", repr(tok.decode(sup[-25:])), flush=True)
-        print("PROMPT_TAIL:", repr(tok.decode([t for t, m in zip(ids, mask) if not m][-12:])), flush=True)
+    ex = trainer.train_dataset[0]  # TRL 1.x stores masked labels (-100 = prompt, not trained)
+    ids, lab = ex["input_ids"], ex["labels"]
+    sup = [t for t, l in zip(ids, lab) if l != -100]
+    first = next(i for i, l in enumerate(lab) if l != -100)
+    print("SUPERVISED_HEAD:", repr(tok.decode(sup[:30])), flush=True)
+    print("SUPERVISED_TAIL:", repr(tok.decode(sup[-20:])), flush=True)
+    print("PROMPT_TAIL:", repr(tok.decode(ids[max(0, first - 10):first])), flush=True)
     n_tr = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
     n_all = sum(p.numel() for p in trainer.model.parameters())
     print(f"trainable={n_tr} total={n_all} ({100*n_tr/n_all:.2f}%)", flush=True)
