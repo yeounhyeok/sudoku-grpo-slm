@@ -1,0 +1,60 @@
+{
+  "source": "data/processed",
+  "rule": "single-candidate solver (naked, hidden); unsolvable dropped",
+  "levels": {
+    "L0": {
+      "sft_train": {
+        "rows": 17897,
+        "sha256": "9fe9438685480edf9f2dbbaae2d7a0a29b77a854ed80f75a9dc50a8268eae3e9"
+      },
+      "val": {
+        "rows": 342,
+        "sha256": "b661a6c3bad9cfe279f51b9df0cf734a659aad145e605b43d3b1ca4cf209f992"
+      }
+    },
+    "L1": {
+      "sft_train": {
+        "rows": 17897,
+        "sha256": "8547316a12c284e508607d8b14e7c6f9aaf09cfc60b7227f43a99390ace05dd9"
+      },
+      "val": {
+        "rows": 342,
+        "sha256": "27dfb770912fb13fe591417f529d3aae23817dce3c37498771c55278ec261fa3"
+      }
+    },
+    "L2": {
+      "sft_train": {
+        "rows": 17897,
+        "sha256": "2cbaa8a052a59d7decb29ba64f8c3e5f7d96f3dc5ef6540f4afb1162774539dd"
+      },
+      "val": {
+        "rows": 342,
+        "sha256": "b3d43ea07414544aae7807b8c1292cf4bf120153cfd77e27556f9950994917bc"
+      }
+    }
+  },
+  "kept": {
+    "sft_train": {
+      "easy": 3000,
+      "expert": 577,
+      "hard": 5320,
+      "medium": 9000
+    },
+    "val": {
+      "easy": 50,
+      "expert": 14,
+      "hard": 128,
+      "medium": 150
+    }
+  },
+  "dropped": {
+    "sft_train": {
+      "expert": 223,
+      "hard": 680
+    },
+    "val": {
+      "expert": 6,
+      "hard": 22
+    }
+  }
+}

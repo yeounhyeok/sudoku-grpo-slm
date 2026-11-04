@@ -41,3 +41,6 @@ logs/
 .DS_Store
 .vscode/
 .idea/
+
+# SFT traces (regenerate: scripts/build_sft.py; manifest is tracked)
+data/sft/L*/
