@@ -8,7 +8,7 @@
 Prompts: data/processed/rl_train.jsonl rendered with the model's chat template exactly as in
 evaluation (`enable_thinking=True`, generation prompt ends with "<think>\\n").
 Rewards (src/sudoku_grpo/reward.py):
-  process  format 0.2 + step 0.6 + exact 0.2   (G-RaR split, judge -> step verifier)
+  process  format 0.2 + step 0.5 + evidence 0.1 + exact 0.2   (G-RaR split, judge -> step verifier)
   outcome  format 0.2 + exact 0.8              (answer-only control)
 Every run logs to W&B (team project sudoku-grpo-slm, run name = run id).
 """
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-WEIGHTS = {"process": [0.2, 0.6, 0.2], "outcome": [0.2, 0.0, 0.8]}
+WEIGHTS = {"process": [0.2, 0.5, 0.1, 0.2], "outcome": [0.2, 0.0, 0.0, 0.8]}  # format, step, evidence, exact
 
 
 def main() -> None:

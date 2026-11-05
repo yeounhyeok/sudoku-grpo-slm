@@ -28,12 +28,19 @@ class TestReward(unittest.TestCase):
         self.assertAlmostEqual(r["step"], k / P.count("."))
         self.assertEqual(r["exact"], 1.0)  # answer block untouched
 
+    def test_evidence_separate(self):
+        lines = gold().split("\n")
+        lines[0] = lines[0].replace(" r:", " r:9", 1) if " r:" in lines[0] else lines[0].replace("[", "[r1c1:r ", 1)
+        r = reward.score(P, S, "\n".join(lines))
+        self.assertEqual(r["step"], 1.0)          # placements still all correct
+        self.assertLess(r["evidence"], 1.0)        # one false justification
+
     def test_unclosed(self):
         r = reward.score(P, S, gold().split("</think>")[0])
         self.assertEqual((r["format"], r["exact"]), (0.0, 0.0))
 
     def test_trl_signature(self):
-        f, s, e = reward.make_reward_funcs(2)
+        f, s, ev, e = reward.make_reward_funcs(2)
         c = [gold(), "garbage"]
         self.assertEqual(f(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])
         self.assertEqual(e(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])
