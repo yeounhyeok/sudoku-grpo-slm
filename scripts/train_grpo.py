@@ -8,6 +8,7 @@
 Prompts: data/processed/rl_train.jsonl rendered with the model's chat template exactly as in
 evaluation (`enable_thinking=True`, generation prompt ends with "<think>\\n").
 Rewards (src/sudoku_grpo/reward.py):
+  gated    format GATE x (0.75 reason + 0.25 exact)   (v3.2 default; additive format was reward-hacked)
   reason   format 0.2 + reason 0.6 + exact 0.2   (G-RaR split; the LLM judge is replaced by a
            solution-free code judge of each deduction's logical validity)
   process  format 0.2 + step 0.5 + evidence 0.1 + exact 0.2   (v2, step progress checked against the key)
@@ -27,17 +28,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-# reward order: format, step (answer-key progress), evidence, reason (solution-free code judge), exact
-WEIGHTS = {"reason": [0.2, 0.0, 0.0, 0.6, 0.2],      # v3 main: G-RaR split, judge -> code judge of logic
-           "process": [0.2, 0.5, 0.1, 0.0, 0.2],     # v2: answer-key step progress
-           "outcome": [0.2, 0.0, 0.0, 0.0, 0.8]}     # answer only (RQ2 control)
+# reward order: format, step (answer-key progress), evidence, reason (solution-free code judge), exact, gated
+# zero-weight terms are still computed and logged to W&B (rewards/<name>/mean).
+WEIGHTS = {"gated": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],     # v3.2 main: fmt * (0.75 reason + 0.25 exact)
+           "reason": [0.2, 0.0, 0.0, 0.6, 0.2, 0.0],    # v3.1 additive (format-hacked, see notes)
+           "process": [0.2, 0.5, 0.1, 0.0, 0.2, 0.0],   # v2: answer-key step progress
+           "outcome": [0.2, 0.0, 0.0, 0.0, 0.8, 0.0]}   # answer only (RQ2 control)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--init", required=True, help="merged SFT checkpoint dir (warm start)")
     ap.add_argument("--level", type=int, choices=[0, 1, 2, 3], default=2, help="trace level checked by the step reward")
-    ap.add_argument("--reward", choices=list(WEIGHTS), default="reason")
+    ap.add_argument("--reward", choices=list(WEIGHTS), default="gated")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--prompts-per-step", type=int, default=4)
@@ -64,6 +67,15 @@ def main() -> None:
 
     os.environ.setdefault("WANDB_PROJECT", "sudoku-grpo-slm")
     os.environ.setdefault("WANDB_ENTITY", "2091126-hansung-university")
+    import subprocess
+    try:
+        commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, timeout=5).stdout.strip() or "nogit"
+    except Exception:
+        commit = "nogit"
+    os.environ.setdefault("WANDB_TAGS", f"grpo,reward-{args.reward},L{args.level},init-{Path(args.init).name}")
+    os.environ.setdefault("WANDB_NOTES", f"reward={args.reward} weights={WEIGHTS[args.reward]} init={args.init} "
+                                         f"code={commit}. Table column judge_view: per-line code-judge verdict.")
     run = f"grpo-{Path(args.init).name}-L{args.level}-{args.reward}{args.tag}"
     out = ROOT / "outputs/grpo" / run
     out.mkdir(parents=True, exist_ok=True)

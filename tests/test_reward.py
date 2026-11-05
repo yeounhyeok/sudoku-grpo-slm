@@ -77,12 +77,25 @@ class TestReward(unittest.TestCase):
         c = gold().split("<answer>")[0] + "<answer>\n" + format_grid(bad) + "\n</answer>"
         self.assertEqual(reward.score(P, S, c)["format"], 0.0)
 
+    def test_gate_blocks_format_only(self):
+        self.assertAlmostEqual(reward.score(P, S, gold())["gated"], 1.0)
+        junk = "</think>\n\n<answer>\n" + format_grid(P.replace(".", "1")) + "\n</answer>"
+        r = reward.score(P, S, junk)
+        self.assertEqual(r["format"], 1.0)        # structurally fine, no reasoning
+        self.assertEqual(r["gated"], 0.0)         # ... earns nothing under the gate
+        self.assertEqual(r["answer_valid"], 0.0)
+
+    def test_judge_view(self):
+        v = reward.judge_view(P, gold())
+        self.assertIn("✅", v)
+        self.assertNotIn("🟧", v)
+
     def test_unclosed(self):
         r = reward.score(P, S, gold().split("</think>")[0])
         self.assertEqual((r["format"], r["exact"]), (0.0, 0.0))
 
     def test_trl_signature(self):
-        f, s, ev, rs, e = reward.make_reward_funcs(2)
+        f, s, ev, rs, e, gt = reward.make_reward_funcs(2)
         c = [gold(), "garbage"]
         self.assertEqual(f(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])
         self.assertEqual(e(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])
