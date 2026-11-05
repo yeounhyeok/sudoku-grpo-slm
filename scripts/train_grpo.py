@@ -52,6 +52,11 @@ def main() -> None:
     ap.add_argument("--save-steps", type=int, default=25)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--curriculum", default="",
+                    help='staged tiers, e.g. "easy:40,easy+medium:40,easy+medium+hard:20" (steps per stage); '
+                         'prompts are laid out stage by stage and the trainer does not reshuffle them')
+    ap.add_argument("--scale-rewards", default="group", choices=["group", "batch", "none"],
+                    help="advantage scaling: group std (GRPO), batch std (less noise amplification), none (Dr. GRPO)")
     ap.add_argument("--report-to", default=os.environ.get("SFT_REPORT_TO", "wandb"))
     args = ap.parse_args()
 
@@ -75,6 +80,8 @@ def main() -> None:
         commit = "nogit"
     os.environ.setdefault("WANDB_TAGS", f"grpo,reward-{args.reward},L{args.level},init-{Path(args.init).name}")
     os.environ.setdefault("WANDB_NOTES", f"reward={args.reward} weights={WEIGHTS[args.reward]} init={args.init} "
+                                         f"curriculum={args.curriculum or 'none'} scale_rewards={args.scale_rewards} "
+                                         f"max_completion={args.max_completion} "
                                          f"code={commit}. Table column judge_view: per-line code-judge verdict.")
     run = f"grpo-{Path(args.init).name}-L{args.level}-{args.reward}{args.tag}"
     out = ROOT / "outputs/grpo" / run
@@ -88,7 +95,28 @@ def main() -> None:
                                     add_generation_prompt=True, enable_thinking=True)
         assert p.endswith("<think>\n"), p[-30:]
         rows.append({"prompt": p, "puzzle": r["puzzle"], "solution": r["solution"], "tier": r.get("tier", "")})
-    ds = Dataset.from_list(rows).shuffle(seed=args.seed)
+    if args.curriculum:
+        import random
+        rng = random.Random(args.seed)
+        pools = {}
+        for r in rows:
+            pools.setdefault(r["tier"], []).append(r)
+        for v in pools.values():
+            rng.shuffle(v)
+        cursor = {k: 0 for k in pools}
+        ordered = []
+        for stage in args.curriculum.split(","):
+            tiers, n_steps = stage.split(":")
+            tiers = tiers.split("+")
+            for i in range(int(n_steps) * args.prompts_per_step):   # round-robin over the stage's tiers
+                t = tiers[i % len(tiers)]
+                ordered.append(pools[t][cursor[t] % len(pools[t])])
+                cursor[t] += 1
+        rows = ordered
+        ds = Dataset.from_list(rows)
+        print("curriculum", args.curriculum, "prompts", len(rows), "used per tier", cursor, flush=True)
+    else:
+        ds = Dataset.from_list(rows).shuffle(seed=args.seed)
     print(f"run={run} prompts={len(ds)} init={args.init}", flush=True)
 
     accum = args.prompts_per_step * args.G // args.micro
@@ -100,6 +128,7 @@ def main() -> None:
         temperature=1.0, top_p=0.95, top_k=20,          # eval preset minus presence penalty
         beta=args.beta, mask_truncated_completions=False,   # truncation is penalised by the reward, not hidden
         reward_weights=WEIGHTS[args.reward],
+        scale_rewards=args.scale_rewards, shuffle_dataset=not args.curriculum,
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
         logging_steps=1, log_completions=True, num_completions_to_print=1,
         save_strategy="steps", save_steps=args.save_steps, save_total_limit=4, save_only_model=True,
@@ -118,7 +147,8 @@ def main() -> None:
     tok.save_pretrained(str(out / "final"))
     meta = {"run": run, "init": args.init, "level": args.level, "reward": args.reward, "weights": WEIGHTS[args.reward],
             "lr": args.lr, "max_steps": args.max_steps, "prompts_per_step": args.prompts_per_step, "G": args.G,
-            "max_completion": args.max_completion, "beta": args.beta, "lora_r": args.lora_r, "trainable_params": n_tr,
+            "max_completion": args.max_completion, "beta": args.beta, "curriculum": args.curriculum,
+            "scale_rewards": args.scale_rewards, "lora_r": args.lora_r, "trainable_params": n_tr,
             "seconds": round(time.time() - t0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}
