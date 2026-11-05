@@ -33,6 +33,19 @@ def _digits(S) -> str:
     return "".join(map(str, sorted(S)))
 
 
+def entailed(g, x: int, d: int) -> bool:
+    """d at x is forced by a single: x has only candidate d, or d fits nowhere else in one of x's units."""
+    if g[x] or d not in candidates(g, x):
+        return False
+    if candidates(g, x) == {d}:
+        return True
+    r, c, b = x // 9, x % 9, box_of(x)
+    for unit in (UNIT_CELLS["r"][r], UNIT_CELLS["c"][c], UNIT_CELLS["b"][b]):
+        if all(y == x or g[y] or blocker(g, y, d) for y in unit):
+            return True
+    return False
+
+
 @dataclass
 class StepCheck:
     line: str
@@ -42,6 +55,7 @@ class StepCheck:
     claim: bool | None = None      # None = no rule tag on this line
     evidence: bool | None = None   # None = no evidence on this line
     ev_score: float | None = None  # graded evidence in [0, 1] (share of evidence fields that are true)
+    sound: bool = False            # legal AND logically forced: stated rule claim true (L1-L3) or entailed (L0)
 
     def ok(self, level: int) -> bool:
         if not (self.parsed and self.legal):
@@ -79,7 +93,8 @@ def check_naked(g, x, d, ev) -> tuple[bool, bool | None, float | None]:
     if not m:
         return claim, False, 0.0
     R, C, B = seen(g, x)
-    hits = [m["r"] == _digits(R), m["c"] == _digits(C - R), m["b"] == _digits(B - R - C)]
+    want = (R, C - R, B - R - C)
+    hits = [len(set(f)) == len(f) and {int(ch) for ch in f} == w for f, w in zip((m["r"], m["c"], m["b"]), want)]
     return claim, all(hits), sum(hits) / 3
 
 
@@ -110,7 +125,10 @@ def check_hidden(g, x, d, kind, i, ev) -> tuple[bool, bool | None, float | None]
     return claim, score == 1.0 and set(listed) == set(others), score
 
 
-def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> TraceCheck:
+def check_trace(puzzle81: str, trace: str, solution81: str | None = None, apply: str = "legal") -> TraceCheck:
+    """apply="legal": every legal step is placed on the board (SFT data checks, analysis).
+    apply="sound": only sound steps are placed, so an unjustified guess cannot corrupt the board that
+    later steps are judged on (reward)."""
     g = to_cells(puzzle81)
     sol = to_cells(solution81) if solution81 else None
     out = TraceCheck()
@@ -143,6 +161,8 @@ def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> Tra
             sc.claim, sc.evidence, sc.ev_score = check_hidden(g, x, d, uk, int(ui) - 1, ev)
         elif ev is not None:
             sc.evidence = False  # evidence without a rule tag is malformed
-        g[x] = d
+        sc.sound = bool(sc.claim) if sc.claim is not None else (ev is None and entailed(g, x, d))
+        if apply == "legal" or sc.sound:
+            g[x] = d
     out.final = "".join(str(v) if v else "." for v in g)
     return out

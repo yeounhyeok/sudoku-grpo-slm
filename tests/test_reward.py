@@ -50,6 +50,33 @@ class TestReward(unittest.TestCase):
         self.assertAlmostEqual(r, 1 - 0.4 / 3 / P.count("."), places=6)
         self.assertLess(reward.score(P, S, "r1c3=1 naked r:1 c:2 b:3\n</think>")["reason"], 0.02)
 
+    def test_legal_guess_earns_nothing(self):
+        # a legal but unforced digit (not a single) scores 0 and is not placed on the board
+        from sudoku_grpo import solver as sv, verify as vf
+        g = sv.to_cells(P)
+        x = next(i for i in range(81) if not g[i] and len(sv.candidates(g, i)) > 1
+                 and not any(vf.entailed(g, i, d) for d in sv.candidates(g, i)))
+        d = min(sv.candidates(g, x))
+        line = f"{sv.cell_name(x)}={d}"
+        r = reward.score(P, S, line + "\n</think>\n\n<answer>\n" + format_grid(S) + "\n</answer>", 0)
+        self.assertEqual(r["reason"], 0.0)
+
+    def test_unsorted_evidence_accepted(self):
+        lines = gold().split("\n")
+        i = next(k for k, l in enumerate(lines) if " naked r:" in l and len(l.split("r:")[1].split()[0]) > 1)
+        head, tail = lines[i].split(" r:", 1)
+        rd, rest = tail.split(" ", 1)
+        lines[i] = f"{head} r:{rd[::-1]} {rest}"
+        self.assertAlmostEqual(reward.score(P, S, "\n".join(lines))["reason"], 1.0)
+
+    def test_unclosed_reason_zero(self):
+        self.assertEqual(reward.score(P, S, gold().split("</think>")[0])["reason"], 0.0)
+
+    def test_answer_must_follow_trace(self):
+        bad = S[:-1] + str(int(S[-1]) % 9 + 1)
+        c = gold().split("<answer>")[0] + "<answer>\n" + format_grid(bad) + "\n</answer>"
+        self.assertEqual(reward.score(P, S, c)["format"], 0.0)
+
     def test_unclosed(self):
         r = reward.score(P, S, gold().split("</think>")[0])
         self.assertEqual((r["format"], r["exact"]), (0.0, 0.0))

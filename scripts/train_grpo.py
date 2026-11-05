@@ -86,7 +86,7 @@ def main() -> None:
         max_steps=args.max_steps, per_device_train_batch_size=args.micro, gradient_accumulation_steps=accum,
         num_generations=args.G, max_completion_length=args.max_completion,
         temperature=1.0, top_p=0.95, top_k=20,          # eval preset minus presence penalty
-        beta=args.beta, mask_truncated_completions=True,
+        beta=args.beta, mask_truncated_completions=False,   # truncation is penalised by the reward, not hidden
         reward_weights=WEIGHTS[args.reward],
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
         logging_steps=1, log_completions=True, num_completions_to_print=1,

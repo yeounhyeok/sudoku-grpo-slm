@@ -14,17 +14,18 @@ Completion text = everything generated after the eval prefix "<think>\\n":
    so placement progress and evidence quality are now separate terms.)
   exact   1 if the answer grid equals the solution
 
-  reason    (v3, SOLUTION-FREE) the code judge of the reasoning itself, G-RaR's judge role: every step is
-            replayed on the current board and scored for logical validity only, never compared with
-            the answer key:
-              step score = 0.2 legal (empty cell, no clash with row/col/box)
-                         + 0.4 rule claim true (naked: the cell has exactly this one candidate;
-                                                hidden: the digit fits nowhere else in the unit)
-                         + 0.4 graded evidence (share of the stated row/col/box digits or
-                                                eliminations that are true)       [L1: claim only, rescaled]
-            reason = sum(step scores) / #empty cells  (capped at 1): more sound deductions -> more reward;
-            fabricated steps earn ~0. In sudoku a true single is a forced deduction, so a fully valid
-            reason trace is also correct, but the reward never looks at the solution to know it.
+  reason    (v3.1, SOLUTION-FREE) code judge of the reasoning itself (G-RaR's judge role). Steps are
+            replayed on the board and only SOUND steps count: legal AND logically forced (the stated
+            naked/hidden claim is true; for untagged L0 lines the digit must be entailed by a single).
+              sound step score = 0.6 + 0.4 * graded evidence   (L1: 1.0, L0: 1.0); unsound = 0
+            Unsound steps are not placed on the board, so a guess cannot corrupt later judgements.
+            reason = sum(step scores) / #empty cells (cap 1); 0 if the thinking block never closes
+            (rambling / loops are not rewarded; truncated rollouts are NOT masked out of the loss).
+            The answer key is never consulted: a true single is a forced deduction, so a sound step can
+            never be "locally right but globally wrong" (the failure AdaC-GRPO reports for partial-grid
+            rewards); v3 gave 0.2 for merely legal guesses, which is exactly that failure -> removed.
+  format    (v3.1) closed thinking + 81-cell answer + givens preserved + the answer agrees with every
+            sound placement in the trace (the answer must follow from the reasoning).
 
 Default weights mirror the G-RaR split (format 0.2 / answer 0.2 / process 0.6 = step 0.5 + evidence 0.1),
 with the LLM judge replaced by the programmatic step verifier.
@@ -47,6 +48,7 @@ def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
     trace, rest, closed = split_completion(completion)
     pred = grid.parse_answer(rest) if closed else None
     chk = verify.check_trace(puzzle, trace, solution)
+    snd = verify.check_trace(puzzle, trace, None, apply="sound")   # judge: no answer key
     lead, ev_ok = 0, 0
     for st in chk.steps:
         if not st.ok(0):
@@ -55,16 +57,14 @@ def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
         ev_ok += st.ok(level)
     n_empty = puzzle.count(".") or 1
     tot = 0.0
-    for st in chk.steps:
-        if not (st.parsed and st.legal):
+    for st in snd.steps:
+        if not st.sound:
             continue
-        if st.ev_score is not None:          # L2 / L3
-            tot += 0.2 + 0.4 * bool(st.claim) + 0.4 * st.ev_score
-        elif st.claim is not None:           # L1
-            tot += 0.2 + 0.8 * bool(st.claim)
-        else:                                # L0: no reasoning to judge, only legality
-            tot += 0.2
-    return {"reason": min(tot / n_empty, 1.0), "format": float(pred is not None), "step": min(lead, n_empty) / n_empty,
+        tot += (0.6 + 0.4 * st.ev_score) if st.ev_score is not None else 1.0
+    reason = min(tot / n_empty, 1.0) if closed else 0.0
+    fmt = pred is not None and grid.givens_preserved(puzzle, pred) and all(
+        pred[i] == ch for i, ch in enumerate(snd.final) if ch != "." and puzzle[i] == ".")
+    return {"reason": reason, "format": float(fmt), "step": min(lead, n_empty) / n_empty,
             "evidence": (ev_ok / lead) if lead else 0.0,
             "exact": float(pred == solution), "n_steps": len(chk.steps), "lead": lead}
 
