@@ -13,10 +13,10 @@ export UV_CACHE_DIR=${UV_CACHE_DIR:-/root/.cache/uv}
 
 # torch from the vLLM ROCm index links against OpenMPI C++ bindings and elfutils.
 if command -v apt-get >/dev/null; then
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends libopenmpi3t64 libdw1t64
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends python3.12-venv libopenmpi3t64 libdw1t64
 fi
 mkdir -p "$(dirname "$VENV")"
-[ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
+[ -x "$VENV/bin/pip" ] || { rm -rf "$VENV"; python3 -m venv "$VENV"; }
 "$VENV/bin/pip" install -q uv
 "$VENV/bin/uv" pip install --python "$VENV/bin/python" "vllm==${VLLM_VERSION}" \
   --extra-index-url "https://wheels.vllm.ai/rocm/${VLLM_VERSION}/${VARIANT}"
