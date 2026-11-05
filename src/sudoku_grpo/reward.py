@@ -24,6 +24,10 @@ Completion text = everything generated after the eval prefix "<think>\\n":
             The answer key is never consulted: a true single is a forced deduction, so a sound step can
             never be "locally right but globally wrong" (the failure AdaC-GRPO reports for partial-grid
             rewards); v3 gave 0.2 for merely legal guesses, which is exactly that failure -> removed.
+  v3.3      a step counts only if written at the trained level (L2/L3: rule + evidence, L1: rule), and
+            reason is scaled by (0.5 + 0.5 * precision), precision = credited lines / all non-blank lines
+            (spraying guesses or padding lowers it). Format additionally needs exactly one <answer> block
+            and no blank cells.
   format    (v3.1) closed thinking + 81-cell answer + givens preserved + the answer agrees with every
             sound placement in the trace (the answer must follow from the reasoning).
 
@@ -44,6 +48,19 @@ def split_completion(text: str) -> tuple[str, str, bool]:
     return text, "", False
 
 
+def counts(st, level: int) -> bool:
+    """A step earns reason credit only if it is sound AND written at the trained level:
+    L2/L3 need rule tag + evidence, L1 needs the rule tag, L0 a bare placement suffices.
+    (v3.2 gave full credit to evidence-free / bare lines -> the visible reasoning could be dropped.)"""
+    if not st.sound:
+        return False
+    if level >= 2:
+        return st.claim is not None and st.ev_score is not None
+    if level == 1:
+        return st.claim is not None
+    return True
+
+
 def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
     trace, rest, closed = split_completion(completion)
     pred = grid.parse_answer(rest) if closed else None
@@ -56,22 +73,26 @@ def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
         lead += 1
         ev_ok += st.ok(level)
     n_empty = puzzle.count(".") or 1
-    tot = 0.0
+    tot, n_sound = 0.0, 0
     for st in snd.steps:
-        if not st.sound:
+        if not counts(st, level):
             continue
+        n_sound += 1
         tot += (0.6 + 0.4 * st.ev_score) if st.ev_score is not None else 1.0
-    reason = min(tot / n_empty, 1.0) if closed else 0.0
-    fmt = pred is not None and grid.givens_preserved(puzzle, pred) and all(
-        pred[i] == ch for i, ch in enumerate(snd.final) if ch != "." and puzzle[i] == ".")
-    n_sound = sum(st.sound for st in snd.steps)
-    ev = [st.ev_score for st in snd.steps if st.sound and st.ev_score is not None]
+    n_lines = len(snd.steps)
+    precision = n_sound / n_lines if n_lines else 0.0
+    reason = min(tot / n_empty, 1.0) * (0.5 + 0.5 * precision) if closed else 0.0
+    one_answer = rest.count("<answer>") == 1
+    fmt = (pred is not None and one_answer and "." not in pred and grid.givens_preserved(puzzle, pred)
+           and all(pred[i] == ch for i, ch in enumerate(snd.final) if ch != "." and puzzle[i] == "."))
+    ev = [st.ev_score for st in snd.steps if counts(st, level) and st.ev_score is not None]
     answer_valid = pred is not None and grid.is_complete_valid(pred)
     exact = float(pred == solution)
     return {"gated": float(fmt) * (0.75 * reason + 0.25 * exact),
             "closed": float(closed), "answer_valid": float(answer_valid), "n_empty": n_empty,
-            "n_lines": len(snd.steps), "n_sound": n_sound,
+            "n_lines": n_lines, "n_sound": n_sound, "precision": precision,
             "n_unforced": sum(st.parsed and st.legal and not st.sound for st in snd.steps),
+            "n_missing": sum(st.sound and not counts(st, level) for st in snd.steps),
             "n_illegal": sum(st.parsed and not st.legal for st in snd.steps),
             "n_unparsed": sum(not st.parsed for st in snd.steps),
             "n_hidden": sum(st.sound and " hidden " in f" {st.line} " for st in snd.steps),
@@ -81,15 +102,18 @@ def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
             "exact": exact, "n_steps": len(chk.steps), "lead": lead}
 
 
-def judge_view(puzzle: str, completion: str, max_lines: int = 90) -> str:
+def judge_view(puzzle: str, completion: str, max_lines: int = 90, level: int = 2) -> str:
     """Human-readable verdict of the code judge, one mark per trace line (for the W&B table).
-    ✅ sound (forced, evidence k/3 or ok) · 🟧 legal but not forced (guess / false claim) · ❌ illegal · ⬜ unparsed"""
+    ✅ sound (forced, evidence score) · 🟦 forced but rule/evidence missing (no credit) · 🟧 legal but not forced
+    (guess / false claim) · ❌ illegal · ⬜ unparsed"""
     trace, _, closed = split_completion(completion)
     snd = verify.check_trace(puzzle, trace, None, apply="sound")
     out = []
     for st in snd.steps[:max_lines]:
-        if st.sound:
+        if counts(st, level):
             tag = "✅" + (f" ev {st.ev_score:.2f}" if st.ev_score is not None else "")
+        elif st.sound:
+            tag = "🟦 no reason"
         elif st.parsed and st.legal:
             tag = "🟧 not forced"
         elif st.parsed:
@@ -136,7 +160,7 @@ def make_reward_funcs(level: int = 2):
         Also pushes the code judge's view of every completion to W&B (table columns + judge/* metrics)."""
         sc = [_s(c, p, s) for c, p, s in zip(completions, puzzle, solution)]
         if log_extra is not None:
-            log_extra("judge_view", [judge_view(p, c) for c, p in zip(completions, puzzle)])
+            log_extra("judge_view", [judge_view(p, c, level=level) for c, p in zip(completions, puzzle)])
             log_extra("sound/empty", [f"{x['n_sound']}/{x['n_empty']}" for x in sc])
             log_extra("answer_valid", [x["answer_valid"] for x in sc])
             log_extra("tier", list(kw.get("tier", [""] * len(sc))))
@@ -153,6 +177,8 @@ def make_reward_funcs(level: int = 2):
                  "judge/frac_lines_not_forced": sum(x["n_unforced"] for x in sc) / lines,
                  "judge/frac_lines_illegal": sum(x["n_illegal"] for x in sc) / lines,
                  "judge/frac_lines_unparsed": sum(x["n_unparsed"] for x in sc) / lines,
+                 "judge/frac_lines_forced_no_reason": sum(x["n_missing"] for x in sc) / lines,
+                 "judge/precision": sum(x["precision"] for x in sc) / n,
                  "judge/frac_sound_hidden": sum(x["n_hidden"] for x in sc) / max(1, sum(x["n_sound"] for x in sc))}
             ev = [x["ev_mean"] for x in sc if x["ev_mean"] is not None]
             if ev:

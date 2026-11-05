@@ -90,6 +90,33 @@ class TestReward(unittest.TestCase):
         self.assertIn("✅", v)
         self.assertNotIn("🟧", v)
 
+    def _lines(self):
+        return [l for l in gold(2).split("</think>")[0].split("\n") if l.strip()]
+
+    def _ans(self, a=None):
+        return "\n</think>\n\n<answer>\n" + format_grid(a or S) + "\n</answer>"
+
+    def test_v33_evidence_required_at_L2(self):
+        noev = [l.split(" r:")[0] if " naked " in l else (l.split(" [")[0] if " hidden " in l else l) for l in self._lines()]
+        self.assertEqual(reward.score(P, S, "\n".join(noev) + self._ans(), 2)["reason"], 0.0)
+        bare = [l.split(" ")[0] for l in self._lines()]
+        self.assertEqual(reward.score(P, S, "\n".join(bare) + self._ans(), 2)["reason"], 0.0)
+        self.assertIn("🟦", reward.judge_view(P, "\n".join(bare) + self._ans(), level=2))
+
+    def test_v33_precision(self):
+        ls = self._lines()
+        padded = [x for l in ls for x in (l, "hmm")]
+        r = reward.score(P, S, "\n".join(padded) + self._ans(), 2)
+        self.assertAlmostEqual(r["reason"], 0.75)          # half the lines are chatter
+        self.assertAlmostEqual(reward.score(P, S, "\n".join(ls * 2) + self._ans(), 2)["reason"], 0.75)
+
+    def test_v33_answer_block(self):
+        tr = "\n".join(self._lines())
+        two = tr + self._ans(P.replace(".", "1")) + "\n<answer>\n" + format_grid(S) + "\n</answer>"
+        self.assertEqual(reward.score(P, S, two, 2)["format"], 0.0)
+        holes = S[:80] + "."
+        self.assertEqual(reward.score(P, S, tr + self._ans(holes), 2)["format"], 0.0)
+
     def test_unclosed(self):
         r = reward.score(P, S, gold().split("</think>")[0])
         self.assertEqual((r["format"], r["exact"]), (0.0, 0.0))
