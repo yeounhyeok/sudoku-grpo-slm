@@ -35,12 +35,27 @@ class TestReward(unittest.TestCase):
         self.assertEqual(r["step"], 1.0)          # placements still all correct
         self.assertLess(r["evidence"], 1.0)        # one false justification
 
+    def test_reason_is_solution_free(self):
+        g = gold()
+        self.assertAlmostEqual(reward.score(P, S, g)["reason"], 1.0)
+        wrong_key = S[::-1]                       # answer key is irrelevant to the reason reward
+        self.assertAlmostEqual(reward.score(P, wrong_key, g)["reason"], 1.0)
+        self.assertEqual(reward.score(P, wrong_key, g)["exact"], 0.0)
+
+    def test_reason_graded(self):
+        lines = gold().split("\n")
+        i = next(k for k, l in enumerate(lines) if " naked " in l)
+        lines[i] = lines[i].replace(" r:", " r:9", 1)   # one false evidence field -> partial credit
+        r = reward.score(P, S, "\n".join(lines))["reason"]
+        self.assertAlmostEqual(r, 1 - 0.4 / 3 / P.count("."), places=6)
+        self.assertLess(reward.score(P, S, "r1c3=1 naked r:1 c:2 b:3\n</think>")["reason"], 0.02)
+
     def test_unclosed(self):
         r = reward.score(P, S, gold().split("</think>")[0])
         self.assertEqual((r["format"], r["exact"]), (0.0, 0.0))
 
     def test_trl_signature(self):
-        f, s, ev, e = reward.make_reward_funcs(2)
+        f, s, ev, rs, e = reward.make_reward_funcs(2)
         c = [gold(), "garbage"]
         self.assertEqual(f(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])
         self.assertEqual(e(["p", "p"], c, puzzle=[P, P], solution=[S, S]), [1.0, 0.0])

@@ -41,6 +41,7 @@ class StepCheck:
     correct: bool | None = None
     claim: bool | None = None      # None = no rule tag on this line
     evidence: bool | None = None   # None = no evidence on this line
+    ev_score: float | None = None  # graded evidence in [0, 1] (share of evidence fields that are true)
 
     def ok(self, level: int) -> bool:
         if not (self.parsed and self.legal):
@@ -70,42 +71,43 @@ class TraceCheck:
                 "filled": "." not in self.final}
 
 
-def check_naked(g, x, d, ev) -> tuple[bool, bool | None]:
+def check_naked(g, x, d, ev) -> tuple[bool, bool | None, float | None]:
     claim = candidates(g, x) == {d}
     if ev is None:
-        return claim, None
+        return claim, None, None
     m = NAKED_EV.match(ev)
     if not m:
-        return claim, False
+        return claim, False, 0.0
     R, C, B = seen(g, x)
-    return claim, (m["r"], m["c"], m["b"]) == (_digits(R), _digits(C - R), _digits(B - R - C))
+    hits = [m["r"] == _digits(R), m["c"] == _digits(C - R), m["b"] == _digits(B - R - C)]
+    return claim, all(hits), sum(hits) / 3
 
 
-def check_hidden(g, x, d, kind, i, ev) -> tuple[bool, bool | None]:
+def check_hidden(g, x, d, kind, i, ev) -> tuple[bool, bool | None, float | None]:
     unit = UNIT_CELLS[kind][i]
     others = [y for y in unit if y != x and not g[y]]
     claim = x in unit and all(blocker(g, y, d) for y in others)
     if ev is None:
-        return claim, None
+        return claim, None, None
     m = HIDDEN_EV.match(ev)
     if not m:
-        return claim, False
+        return claim, False, 0.0
     listed = {}
     for tok in m["body"].split():
         b = BLOCK_RE.match(tok)
         if not b:
-            return claim, False
+            return claim, False, 0.0
         y = (int(b[1]) - 1) * 9 + int(b[2]) - 1
         if y in listed:
-            return claim, False
+            return claim, False, 0.0
         listed[y] = b[3]
-    if set(listed) != set(others):
-        return claim, False
+    good = 0
     for y, w in listed.items():  # the stated reason must be true (any true reason is accepted)
         unit_of_y = {"r": UNIT_CELLS["r"][y // 9], "c": UNIT_CELLS["c"][y % 9], "b": UNIT_CELLS["b"][box_of(y)]}[w]
-        if d not in {g[z] for z in unit_of_y}:
-            return claim, False
-    return claim, True
+        good += y in others and d in {g[z] for z in unit_of_y}
+    denom = max(len(others), len(listed))
+    score = good / denom if denom else 1.0
+    return claim, score == 1.0 and set(listed) == set(others), score
 
 
 def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> TraceCheck:
@@ -136,9 +138,9 @@ def check_trace(puzzle81: str, trace: str, solution81: str | None = None) -> Tra
             sc.correct = sol[x] == d
         ev = m["ev"]
         if rule == "naked":
-            sc.claim, sc.evidence = check_naked(g, x, d, ev)
+            sc.claim, sc.evidence, sc.ev_score = check_naked(g, x, d, ev)
         elif rule == "hidden":
-            sc.claim, sc.evidence = check_hidden(g, x, d, uk, int(ui) - 1, ev)
+            sc.claim, sc.evidence, sc.ev_score = check_hidden(g, x, d, uk, int(ui) - 1, ev)
         elif ev is not None:
             sc.evidence = False  # evidence without a rule tag is malformed
         g[x] = d

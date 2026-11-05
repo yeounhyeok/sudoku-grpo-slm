@@ -8,7 +8,9 @@
 Prompts: data/processed/rl_train.jsonl rendered with the model's chat template exactly as in
 evaluation (`enable_thinking=True`, generation prompt ends with "<think>\\n").
 Rewards (src/sudoku_grpo/reward.py):
-  process  format 0.2 + step 0.5 + evidence 0.1 + exact 0.2   (G-RaR split, judge -> step verifier)
+  reason   format 0.2 + reason 0.6 + exact 0.2   (G-RaR split; the LLM judge is replaced by a
+           solution-free code judge of each deduction's logical validity)
+  process  format 0.2 + step 0.5 + evidence 0.1 + exact 0.2   (v2, step progress checked against the key)
   outcome  format 0.2 + exact 0.8              (answer-only control)
 Every run logs to W&B (team project sudoku-grpo-slm, run name = run id).
 """
@@ -25,14 +27,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-WEIGHTS = {"process": [0.2, 0.5, 0.1, 0.2], "outcome": [0.2, 0.0, 0.0, 0.8]}  # format, step, evidence, exact
+# reward order: format, step (answer-key progress), evidence, reason (solution-free code judge), exact
+WEIGHTS = {"reason": [0.2, 0.0, 0.0, 0.6, 0.2],      # v3 main: G-RaR split, judge -> code judge of logic
+           "process": [0.2, 0.5, 0.1, 0.0, 0.2],     # v2: answer-key step progress
+           "outcome": [0.2, 0.0, 0.0, 0.0, 0.8]}     # answer only (RQ2 control)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--init", required=True, help="merged SFT checkpoint dir (warm start)")
     ap.add_argument("--level", type=int, choices=[0, 1, 2, 3], default=2, help="trace level checked by the step reward")
-    ap.add_argument("--reward", choices=list(WEIGHTS), default="process")
+    ap.add_argument("--reward", choices=list(WEIGHTS), default="reason")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--max-steps", type=int, default=200)
     ap.add_argument("--prompts-per-step", type=int, default=4)
