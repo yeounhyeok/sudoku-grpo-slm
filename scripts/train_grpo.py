@@ -49,7 +49,7 @@ def main() -> None:
     ap.add_argument("--max-completion", type=int, default=2048)
     ap.add_argument("--lora-r", type=int, default=64)
     ap.add_argument("--beta", type=float, default=0.0, help="KL coef (TRL default 0)")
-    ap.add_argument("--save-steps", type=int, default=25)
+    ap.add_argument("--save-steps", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
     ap.add_argument("--curriculum", default="",
@@ -57,8 +57,24 @@ def main() -> None:
                          'prompts are laid out stage by stage and the trainer does not reshuffle them')
     ap.add_argument("--scale-rewards", default="group", choices=["group", "batch", "none"],
                     help="advantage scaling: group std (GRPO), batch std (less noise amplification), none (Dr. GRPO)")
+    ap.add_argument("--vllm", action="store_true",
+                    help="vLLM colocate rollouts (run with the vLLM env: /root/venvs/vllm/bin/python); eager on MI250")
+    ap.add_argument("--vllm-mem", type=float, default=0.35, help="vLLM gpu_memory_utilization in colocate mode")
     ap.add_argument("--report-to", default=os.environ.get("SFT_REPORT_TO", "wandb"))
     args = ap.parse_args()
+
+    if args.vllm:
+        # single-process colocate: vLLM's external_launcher backend reads the torch.distributed env
+        for k, v in {"RANK": "0", "LOCAL_RANK": "0", "WORLD_SIZE": "1", "MASTER_ADDR": "127.0.0.1",
+                     "MASTER_PORT": "29533"}.items():
+            os.environ.setdefault(k, v)
+        import trl.generation.vllm_generation as _vg
+        _LLM = _vg.LLM
+
+        def _eager_llm(*a, **k):          # HIP graphs crash on gfx90a (HSA_STATUS_ERROR_INVALID_PACKET_FORMAT)
+            k.setdefault("enforce_eager", True)
+            return _LLM(*a, **k)
+        _vg.LLM = _eager_llm
 
     import torch
     from datasets import Dataset
@@ -129,6 +145,8 @@ def main() -> None:
         beta=args.beta, mask_truncated_completions=False,   # truncation is penalised by the reward, not hidden
         reward_weights=WEIGHTS[args.reward],
         scale_rewards=args.scale_rewards, shuffle_dataset=not args.curriculum,
+        **({"use_vllm": True, "vllm_mode": "colocate", "vllm_gpu_memory_utilization": args.vllm_mem,
+            "vllm_max_model_length": args.max_completion + 1024} if args.vllm else {}),
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
         logging_steps=1, log_completions=True, num_completions_to_print=1,
         save_strategy="steps", save_steps=args.save_steps, save_total_limit=4, save_only_model=True,
@@ -148,7 +166,7 @@ def main() -> None:
     meta = {"run": run, "init": args.init, "level": args.level, "reward": args.reward, "weights": WEIGHTS[args.reward],
             "lr": args.lr, "max_steps": args.max_steps, "prompts_per_step": args.prompts_per_step, "G": args.G,
             "max_completion": args.max_completion, "beta": args.beta, "curriculum": args.curriculum,
-            "scale_rewards": args.scale_rewards, "lora_r": args.lora_r, "trainable_params": n_tr,
+            "scale_rewards": args.scale_rewards, "vllm": args.vllm, "lora_r": args.lora_r, "trainable_params": n_tr,
             "seconds": round(time.time() - t0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}
