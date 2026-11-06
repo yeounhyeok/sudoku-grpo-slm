@@ -50,6 +50,9 @@ def main() -> None:
                "evidence_acc": round(st.mean(x["ev_mean"] for x in rows if x["ev_mean"] is not None), 3)
                if any(x["ev_mean"] is not None for x in rows) else None,
                "exact": round(m("exact"), 3)}
+        sr = sum(x["snap_rows"] for x in rows)
+        if sr:
+            out["snapshot_rows_correct"] = round(sum(x["snap_rows_ok"] for x in rows) / sr, 3)
         print(json.dumps(out, ensure_ascii=False))
 
 

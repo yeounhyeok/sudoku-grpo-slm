@@ -54,7 +54,7 @@ def main() -> None:
             assert final == r["solution"], r["id"]
             kept[grp] += 1
             for lv in solver.LEVELS:
-                tr = solver.trace_text(steps, lv)
+                tr = solver.trace_text(steps, lv, r["puzzle"])
                 chk = verify.check_trace(r["puzzle"], tr, r["solution"])
                 s = chk.summary(lv)
                 assert s["all_ok"] and chk.final == r["solution"], (r["id"], lv, s)

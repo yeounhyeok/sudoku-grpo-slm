@@ -18,6 +18,12 @@ Step text formats (one step per line):
   L3  same evidence as L2 but written BEFORE the digit (compute, then commit):
       r4c5 r:1258 c:467 b:9 => 3
       b7 d6 [r8c1:c r9c3:r] => r7c2
+  L4  L3 lines + a snapshot of the current board every SNAP_EVERY steps, so the row/col/box contents
+      needed for the next evidence are visible in recent context instead of being reconstructed from
+      the puzzle plus all earlier lines:
+      board:
+      2.4.1...3      (9 rows, '.' = empty, no spaces)
+      ...
 """
 from __future__ import annotations
 
@@ -28,7 +34,8 @@ COLS = [[r * 9 + c for r in range(9)] for c in range(9)]
 BOXES = [[(3 * (b // 3) + i) * 9 + 3 * (b % 3) + j for i in range(3) for j in range(3)] for b in range(9)]
 UNIT_CELLS = {"r": ROWS, "c": COLS, "b": BOXES}
 HIDDEN_ORDER = [("b", i) for i in range(9)] + [("r", i) for i in range(9)] + [("c", i) for i in range(9)]
-LEVELS = (0, 1, 2, 3)
+LEVELS = (0, 1, 2, 3, 4)
+SNAP_EVERY = 9
 
 
 def box_of(x: int) -> int:
@@ -72,7 +79,7 @@ class Step:
     blocks: list[tuple[int, str]] = field(default_factory=list)  # hidden: (cell, 'r'|'c'|'b')
 
     def text(self, level: int) -> str:
-        if level == 3:
+        if level >= 3:
             if self.rule == "naked":
                 return f"{cell_name(self.cell)} r:{self.seen[0]} c:{self.seen[1]} b:{self.seen[2]} => {self.digit}"
             blk = " ".join(f"{cell_name(y)}:{w}" for y, w in self.blocks)
@@ -127,5 +134,18 @@ def solve_steps(puzzle81: str) -> tuple[bool, list[Step], str]:
     return all(g), steps, "".join(str(v) if v else "." for v in g)
 
 
-def trace_text(steps: list[Step], level: int) -> str:
-    return "\n".join(s.text(level) for s in steps)
+def board_snapshot(g: list[int]) -> str:
+    return "board:\n" + "\n".join("".join(str(v) if v else "." for v in g[r * 9:r * 9 + 9]) for r in range(9))
+
+
+def trace_text(steps: list[Step], level: int, puzzle81: str | None = None) -> str:
+    if level < 4:
+        return "\n".join(s.text(level) for s in steps)
+    assert puzzle81 is not None, "L4 needs the puzzle to render board snapshots"
+    g, out = to_cells(puzzle81), []
+    for i, st in enumerate(steps, 1):
+        out.append(st.text(level))
+        g[st.cell] = st.digit
+        if i % SNAP_EVERY == 0 and i < len(steps):
+            out.append(board_snapshot(g))
+    return "\n".join(out)

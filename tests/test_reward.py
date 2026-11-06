@@ -3,6 +3,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sudoku_grpo import reward, solver
 from sudoku_grpo.grid import format_grid
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _ans(sol):
+    return "<answer>\n" + format_grid(sol) + "\n</answer>"
 
 P = "54..6..1..72.51.466....4..5..4.167.3..943..5..1.5726.4...62943.......9...961....."
 S = "548763219972851346631294875254916783769438152813572694185629437427385961396147528"
@@ -131,3 +136,35 @@ class TestReward(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestL4Snapshots(unittest.TestCase):
+    def _case(self):
+        import json
+        from sudoku_grpo import solver
+        for line in open(ROOT / "data/processed/val.jsonl"):
+            r = json.loads(line)
+            ok, st, _ = solver.solve_steps(r["puzzle"])
+            if ok and len(st) > 20:
+                return r, st
+        raise AssertionError("no case")
+
+    def test_gold_l4_full_score_and_snapshots_neutral(self):
+        from sudoku_grpo import solver
+        r, st = self._case()
+        tr = solver.trace_text(st, 4, r["puzzle"])
+        self.assertIn("board:", tr)
+        x = reward.score(r["puzzle"], r["solution"], tr + "\n</think>\n\n" + _ans(r["solution"]), 4)
+        self.assertEqual(x["gated"], 1.0)
+        self.assertEqual(x["snap_rows"], x["snap_rows_ok"])
+        self.assertEqual(x["n_lines"], len(st))
+
+    def test_wrong_snapshot_row_lowers_precision(self):
+        from sudoku_grpo import solver
+        r, st = self._case()
+        lines = solver.trace_text(st, 4, r["puzzle"]).split("\n")
+        i = lines.index("board:") + 1
+        lines[i] = "".join("1" if ch == "." else ch for ch in lines[i])  # claim empty cells are filled
+        x = reward.score(r["puzzle"], r["solution"], "\n".join(lines) + "\n</think>\n\n" + _ans(r["solution"]), 4)
+        self.assertLess(x["precision"], 1.0)
+        self.assertEqual(x["snap_rows"] - x["snap_rows_ok"], 1)

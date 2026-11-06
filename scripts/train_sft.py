@@ -37,7 +37,7 @@ def render(tok, msgs: list[dict]) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="qwen3.5-2b")
-    ap.add_argument("--level", type=int, choices=[0, 1, 2, 3], default=2)
+    ap.add_argument("--level", type=int, choices=[0, 1, 2, 3, 4], default=2)
     ap.add_argument("--mode", choices=["lora", "full"], default="lora")
     ap.add_argument("--lr", type=float, default=None, help="default 2e-4 (lora) / 1e-5 (full)")
     ap.add_argument("--epochs", type=float, default=2.0)

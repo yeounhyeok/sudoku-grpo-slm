@@ -97,6 +97,7 @@ def score(puzzle: str, solution: str, completion: str, level: int = 2) -> dict:
             "n_unparsed": sum(not st.parsed for st in snd.steps),
             "n_hidden": sum(st.sound and " hidden " in f" {st.line} " for st in snd.steps),
             "ev_mean": (sum(ev) / len(ev)) if ev else None,
+            "snap_rows": snd.snap_rows, "snap_rows_ok": snd.snap_rows_ok,
             "reason": reason, "format": float(fmt), "step": min(lead, n_empty) / n_empty,
             "evidence": (ev_ok / lead) if lead else 0.0,
             "exact": exact, "n_steps": len(chk.steps), "lead": lead}

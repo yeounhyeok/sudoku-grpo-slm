@@ -39,7 +39,7 @@ WEIGHTS = {"gated": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],     # v3.2 main: fmt * (0.75
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--init", required=True, help="merged SFT checkpoint dir (warm start)")
-    ap.add_argument("--level", type=int, choices=[0, 1, 2, 3], default=2, help="trace level checked by the step reward")
+    ap.add_argument("--level", type=int, choices=[0, 1, 2, 3, 4], default=2, help="trace level checked by the step reward")
     ap.add_argument("--reward", choices=list(WEIGHTS), default="gated")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--max-steps", type=int, default=200)

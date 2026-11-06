@@ -36,7 +36,7 @@ class TestVerify(unittest.TestCase):
 
     def test_generated_traces_fully_valid(self):
         for lv in solver.LEVELS:
-            chk = verify.check_trace(P, solver.trace_text(self.steps, lv), S)
+            chk = verify.check_trace(P, solver.trace_text(self.steps, lv, P), S)
             s = chk.summary(lv)
             self.assertTrue(s["all_ok"], (lv, s))
             self.assertEqual(chk.final, S)

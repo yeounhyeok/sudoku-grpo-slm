@@ -27,6 +27,7 @@ L3_HIDDEN = re.compile(r"^(?P<uk>[rcb])(?P<ui>[1-9])\s+d(?P<d>[1-9])\s+(?P<ev>\[
 NAKED_EV = re.compile(r"^r:(?P<r>\d*)\s+c:(?P<c>\d*)\s+b:(?P<b>\d*)$")
 HIDDEN_EV = re.compile(r"^\[(?P<body>[^\]]*)\]$")
 BLOCK_RE = re.compile(r"^r([1-9])c([1-9]):([rcb])$")
+ROW_RE = re.compile(r"^[1-9.]{9}$")
 
 
 def _digits(S) -> str:
@@ -73,6 +74,8 @@ class StepCheck:
 class TraceCheck:
     steps: list[StepCheck] = field(default_factory=list)
     final: str = ""                # puzzle state after replaying legal steps
+    snap_rows: int = 0             # L4 board-snapshot rows seen
+    snap_rows_ok: int = 0          # ... that equal the replayed board
 
     def summary(self, level: int) -> dict:
         n = len(self.steps)
@@ -132,9 +135,23 @@ def check_trace(puzzle81: str, trace: str, solution81: str | None = None, apply:
     g = to_cells(puzzle81)
     sol = to_cells(solution81) if solution81 else None
     out = TraceCheck()
+    snap = -1                      # >=0: index of the next expected snapshot row after "board:"
     for line in (ln.strip() for ln in trace.splitlines()):
         if not line:
             continue
+        if line == "board:":
+            snap = 0
+            continue
+        if 0 <= snap < 9 and ROW_RE.match(line):
+            out.snap_rows += 1
+            want = "".join(str(v) if v else "." for v in g[snap * 9:snap * 9 + 9])
+            snap = snap + 1 if snap < 8 else -1
+            if line == want:
+                out.snap_rows_ok += 1
+                continue           # a correct snapshot row is neutral (not a step)
+            out.steps.append(StepCheck(line))   # a wrong snapshot row counts as an unparsed (bad) line
+            continue
+        snap = -1
         sc = StepCheck(line)
         out.steps.append(sc)
         m = STEP_RE.match(line)
