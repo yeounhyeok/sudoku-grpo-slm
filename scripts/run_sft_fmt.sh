@@ -16,4 +16,5 @@ echo "=== val check $NAME $(date +%H:%M)"
 $VPY scripts/eval.py --model $M --mode think --backend vllm --eager --no-prefix-cache \
   --split val --n 64 --max-new-tokens 4096 --tag _fmt 2>&1 | grep -a -E '^\{"run|Traceback|Error' | cut -c1-400
 $TPY scripts/struct_check.py --level $LV outputs/eval/*${NAME}*val_n64*/samples.jsonl
+rm -rf $M   # merged weights are reproducible from the adapter (merge_lora.py ~1 min); keep /root free
 echo "### $NAME done $(date +%H:%M)"
