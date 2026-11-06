@@ -189,3 +189,50 @@ def make_reward_funcs(level: int = 2):
         return [x["gated"] for x in sc]
 
     return [format_reward, step_reward, evidence_reward, reason_reward, exact_reward, gated_reward]
+
+
+# ---------------------------------------------------------------------------------------------
+# "Sudoku Zero" (R1-Zero style): outcome-only rule rewards, free-form reasoning (no trace grammar).
+#   fmt  1 if the thinking block is closed and the reply has exactly one <answer> block with a
+#        complete 81-cell grid (no blanks) that keeps the givens
+#   acc  1 if that grid is a valid completed sudoku (unique solution => correct; the key is not needed)
+#   R    = acc + w_fmt * fmt   (R1 uses 1:1; we use w_fmt=0.1 because acc is rare at the start)
+# ---------------------------------------------------------------------------------------------
+def zero_score(puzzle: str, completion: str) -> dict:
+    if THINK_END not in completion:
+        return {"fmt": 0.0, "acc": 0.0, "closed": 0.0, "dup_answer": 0.0}
+    rest = completion.split(THINK_END, 1)[1]
+    pred = grid.parse_answer(rest)
+    fmt = (pred is not None and rest.count("<answer>") == 1 and "." not in pred
+           and grid.givens_preserved(puzzle, pred))
+    acc = bool(fmt) and grid.is_complete_valid(pred)
+    return {"fmt": float(fmt), "acc": float(acc), "closed": 1.0, "dup_answer": float(bool(fmt) and not acc)}
+
+
+def make_zero_reward_funcs():
+    """TRL reward functions for the zero mode: [zero_format, zero_accuracy] (weights set by the trainer)."""
+    cache: dict = {}
+
+    def _s(c, p):
+        key = (p, c)
+        if key not in cache:
+            if len(cache) > 4096:
+                cache.clear()
+            cache[key] = zero_score(p, c)
+        return cache[key]
+
+    def zero_format(prompts, completions, puzzle, solution, log_metric=None, **kw):
+        sc = [_s(c, p) for c, p in zip(completions, puzzle)]
+        if log_metric is not None:
+            n = len(sc)
+            log_metric("zero/think_closed", sum(x["closed"] for x in sc) / n)
+            log_metric("zero/format", sum(x["fmt"] for x in sc) / n)
+            log_metric("zero/accuracy", sum(x["acc"] for x in sc) / n)
+            # format-hacking signal: well-formed grids that are not valid sudokus
+            log_metric("zero/formatted_but_wrong", sum(x["dup_answer"] for x in sc) / n)
+        return [x["fmt"] for x in sc]
+
+    def zero_accuracy(prompts, completions, puzzle, solution, **kw):  # solution not needed (unique solution)
+        return [_s(c, p)["acc"] for c, p in zip(completions, puzzle)]
+
+    return [zero_format, zero_accuracy]

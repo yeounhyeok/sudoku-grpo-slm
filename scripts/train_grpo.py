@@ -33,7 +33,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 WEIGHTS = {"gated": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],     # v3.2 main: fmt * (0.75 reason + 0.25 exact)
            "reason": [0.2, 0.0, 0.0, 0.6, 0.2, 0.0],    # v3.1 additive (format-hacked, see notes)
            "process": [0.2, 0.5, 0.1, 0.0, 0.2, 0.0],   # v2: answer-key step progress
-           "outcome": [0.2, 0.0, 0.0, 0.0, 0.8, 0.0]}   # answer only (RQ2 control)
+           "outcome": [0.2, 0.0, 0.0, 0.0, 0.8, 0.0],   # answer only (RQ2 control)
+           "zero": [0.1, 1.0]}                          # Sudoku Zero: [zero_format, zero_accuracy], free-form reasoning
 
 
 def main() -> None:
@@ -83,7 +84,7 @@ def main() -> None:
     from trl import GRPOConfig, GRPOTrainer
 
     from sudoku_grpo import prompt as P
-    from sudoku_grpo.reward import make_reward_funcs
+    from sudoku_grpo.reward import make_reward_funcs, make_zero_reward_funcs
     from train_sft import LM_TARGETS
 
     os.environ.setdefault("WANDB_PROJECT", "sudoku-grpo-slm")
@@ -155,7 +156,8 @@ def main() -> None:
     peft_config = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.0,
                              target_modules=LM_TARGETS, task_type="CAUSAL_LM")
     trainer = GRPOTrainer(model=args.init, args=cfg, train_dataset=ds, processing_class=tok,
-                          reward_funcs=make_reward_funcs(args.level), peft_config=peft_config)
+                          reward_funcs=(make_zero_reward_funcs() if args.reward == "zero" else make_reward_funcs(args.level)),
+                          peft_config=peft_config)
     n_tr = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
     print(f"trainable={n_tr} completions/step={args.prompts_per_step * args.G} accum={accum}", flush=True)
     torch.cuda.reset_peak_memory_stats()
