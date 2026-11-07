@@ -9,6 +9,8 @@
 cd /root/sudoku-grpo-slm
 export PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false HF_HOME=/root/.cache/huggingface
 export WANDB__SERVICE_WAIT=300 WANDB_INIT_TIMEOUT=300
+# causal-conv1d HIP build (scripts/setup_kernels.sh; separate target dir, vLLM venv untouched): conv op 64 -> 3 ms per 20k-token seq
+export PYTHONPATH=/root/cc1d_pkg${PYTHONPATH:+:$PYTHONPATH}
 PY=/root/venvs/vllm/bin/python
 for tag in _zero_p3; do
   for P in $(pgrep -f "run_grpo_zero_p3.sh"); do kill $P; done
