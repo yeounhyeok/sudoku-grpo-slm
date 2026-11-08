@@ -63,6 +63,9 @@ def main() -> None:
     ap.add_argument("--vllm-mem", type=float, default=0.35, help="vLLM gpu_memory_utilization in colocate mode")
     ap.add_argument("--presence-penalty", type=float, default=0.0,
                     help="rollout presence penalty (match eval preset: 1.5); vLLM processed_logprobs keep IS consistent")
+    ap.add_argument("--temperature", type=float, default=1.0, help="rollout temperature (eval preset: 0.6)")
+    ap.add_argument("--top-k", type=int, default=20,
+                    help="rollout top-k; with top_p<1 TRL's IS needs top_k>0 (use a large value, e.g. 512, for ~no top-k)")
     ap.add_argument("--is-mode", default="sequence_mask",
                     choices=["sequence_mask", "sequence_truncate", "token_mask", "token_truncate"],
                     help="TRL vLLM importance-sampling mode; sequence-level ratios explode on 20k-token completions")
@@ -147,7 +150,7 @@ def main() -> None:
         learning_rate=args.lr, lr_scheduler_type="constant_with_warmup", warmup_steps=5,
         max_steps=args.max_steps, per_device_train_batch_size=args.micro, gradient_accumulation_steps=accum,
         num_generations=args.G, max_completion_length=args.max_completion,
-        temperature=1.0, top_p=0.95, top_k=20,          # eval preset (presence penalty via --presence-penalty)
+        temperature=args.temperature, top_p=0.95, top_k=args.top_k,   # eval preset: T 0.6, top-p 0.95 (+ pp 1.5)
         **({"generation_kwargs": {"presence_penalty": args.presence_penalty}} if args.presence_penalty else {}),
         vllm_importance_sampling_mode=args.is_mode,
         beta=args.beta, mask_truncated_completions=False,   # truncation is penalised by the reward, not hidden
@@ -176,7 +179,8 @@ def main() -> None:
             "lr": args.lr, "max_steps": args.max_steps, "prompts_per_step": args.prompts_per_step, "G": args.G,
             "max_completion": args.max_completion, "beta": args.beta, "curriculum": args.curriculum,
             "scale_rewards": args.scale_rewards, "vllm": args.vllm,
-            "presence_penalty": args.presence_penalty, "is_mode": args.is_mode, "lora_r": args.lora_r, "trainable_params": n_tr,
+            "presence_penalty": args.presence_penalty, "is_mode": args.is_mode,
+            "temperature": args.temperature, "top_k": args.top_k, "lora_r": args.lora_r, "trainable_params": n_tr,
             "seconds": round(time.time() - t0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}
