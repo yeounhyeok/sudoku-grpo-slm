@@ -7,7 +7,7 @@
 #  token-truncated IS, cap 24k, G 8, 8 prompts/step):
 #   1. data: medium only, pre-filtered with the starting checkpoint (4 samples @24k, same decoding) to puzzles with
 #      0 < pass < 1 = offline stand-in for DAPO dynamic sampling (TRL 1.17 has no online resampling)
-#   2. DAPO clip-higher: epsilon_high 0.28 (epsilon_low stays 0.2)
+#   (clip-higher dropped 11/9: num_iterations=1 -> ratio==1, clip never fires, so it would be a no-op; DAPO element used = dynamic sampling only)
 #   (token-level loss = TRL default loss_type "dapo", already used by v3)
 # usage: bash scripts/run_grpo_zero_v4.sh <init_dir> <filtered_jsonl> [steps]
 set -u
@@ -21,7 +21,7 @@ test -f "$INIT/config.json" || { echo "EXIT=zero_v4 no_init"; exit 1; }
 N=$(wc -l < "$DATA"); echo "=== v4 start $(date +%H:%M) init=$INIT data=$DATA n=$N steps=$STEPS"
 $PY scripts/train_grpo.py --init "$INIT" --data "$DATA" --reward zero --vllm --vllm-mem 0.30 --prompts-per-step 8 --G 8 --micro 1 \
   --lr 5e-6 --beta 0.005 --scale-rewards batch --max-completion 24576 --seed 6 \
-  --temperature 0.6 --top-k 512 --presence-penalty 1.5 --is-mode token_truncate --epsilon-high 0.28 \
+  --temperature 0.6 --top-k 512 --presence-penalty 1.5 --is-mode token_truncate \
   --max-steps $STEPS --curriculum medium:$STEPS --save-steps 10 --tag _zero_v4 > logs/grpo_zero_v4.log 2>&1
 rc=$?; echo "### v4 rc=$rc $(date +%H:%M)"
 echo "EXIT=zero_v4 $(date +%H:%M)"
