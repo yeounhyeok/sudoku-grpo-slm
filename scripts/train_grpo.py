@@ -37,16 +37,32 @@ WEIGHTS = {"gated": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],     # v3.2 main: fmt * (0.75
            "zero": [0.1, 1.0]}                          # Sudoku Zero: [zero_format, zero_accuracy], free-form reasoning
 
 
-def _pad_cat(pieces, pad_val):
-    """right-pad dim-1 of [B_i, C_i] tensors to a common width and cat along dim 0"""
+def _pad_cat(pieces, pad_val, *, left=False, key="tensor"):
+    """Pad every non-batch axis to its batch maximum, then concatenate on dim 0.
+
+    TRL outputs are usually [B, T], but some token auxiliaries can carry an
+    extra axis. Padding only dim 1 silently leaves those tensors incompatible
+    when dynamic-sampling rounds produce different shapes.
+    """
     import torch
-    w = max(t.shape[1] for t in pieces)
+    ranks = {t.dim() for t in pieces}
+    if len(ranks) != 1:
+        raise ValueError(f"dynamic merge rank mismatch for {key}: {[tuple(t.shape) for t in pieces]}")
+    rank = ranks.pop()
+    if rank < 2:
+        return torch.cat(pieces, dim=0)
+    target = [max(t.shape[d] for t in pieces) for d in range(1, rank)]
     out = []
     for t in pieces:
-        if t.shape[1] < w:
-            t = torch.cat([t, t.new_full((t.shape[0], w - t.shape[1]), pad_val)], dim=1)
-        out.append(t)
-    return torch.cat(out, dim=0)
+        padded = t.new_full((t.shape[0], *target), pad_val)
+        starts = [target[0] - t.shape[1] if left else 0] + [0] * (rank - 2)
+        slices = (slice(None),) + tuple(slice(start, start + size) for start, size in zip(starts, t.shape[1:]))
+        padded[slices] = t
+        out.append(padded)
+    try:
+        return torch.cat(out, dim=0)
+    except RuntimeError as e:
+        raise RuntimeError(f"dynamic merge concat failed for {key}: {[tuple(t.shape) for t in out]}") from e
 
 
 def merge_groups(rounds, selected, G, pad_id):
@@ -68,14 +84,12 @@ def merge_groups(rounds, selected, G, pad_id):
             continue
         if pieces[0][0].dim() == 1:
             res[k] = torch.cat([x[0] for x in pieces], dim=0)
-        elif k.startswith("prompt_"):        # left padded
-            w = max(x[0].shape[1] for x in pieces)
+        elif k.startswith("prompt_"):        # prompt sequences are left padded
             fill = pad_id if k == "prompt_ids" else 0
-            res[k] = torch.cat([torch.cat([x[0].new_full((x[0].shape[0], w - x[0].shape[1]), fill), x[0]], dim=1)
-                                for x in pieces], dim=0)
+            res[k] = _pad_cat([x[0] for x in pieces], fill, left=True, key=k)
         elif pieces[0][0].shape[1] == pieces[0][3] or k.endswith("_ids") or k.endswith("_mask") or "logps" in k:
             fill = pad_id if k == "completion_ids" else (1.0 if k == "importance_sampling_ratio" else 0)
-            res[k] = _pad_cat([x[0] for x in pieces], fill)
+            res[k] = _pad_cat([x[0] for x in pieces], fill, key=k)
         else:                                 # e.g. sequence-level ratio [B, 1]
             res[k] = torch.cat([x[0] for x in pieces], dim=0)
     res["num_items_in_batch"] = res["completion_mask"].sum()

@@ -16,7 +16,9 @@ def mk(B, Pw, C, tag):
             "completion_ids": torch.full((B, C), tag, dtype=torch.long), "completion_mask": cm,
             "advantages": torch.full((B,), float(tag)), "old_per_token_logps": ar(C, tag),
             "importance_sampling_ratio": ar(C, 1.0 + tag), "sampling_per_token_logps": ar(C, tag),
-            "ref_per_token_logps": ar(C, tag), "num_items_in_batch": cm.sum()}
+            "ref_per_token_logps": ar(C, tag),
+            "token_aux": torch.full((B, C, 28 if tag == 1 else 29), float(tag)),
+            "num_items_in_batch": cm.sum()}
 
 r0, r1 = mk(4, 5, 7, 1), mk(2, 8, 3, 2)
 rounds = [(r0, 5, 7), (r1, 8, 3)]
@@ -29,6 +31,8 @@ assert (o["completion_ids"][2, :3] == 2).all() and (o["completion_ids"][2, 3:] =
 assert (o["completion_mask"][2, 3:] == 0).all() and (o["prompt_mask"][0, :3] == 0).all()
 assert (o["old_per_token_logps"][2, 3:] == 0).all() and (o["importance_sampling_ratio"][2, 3:] == 1.0).all()
 assert o["num_items_in_batch"].item() == int(o["completion_mask"].sum())
+assert o["token_aux"].shape == (6, 7, 29)
+assert (o["token_aux"][2, :3, :] == 2).all() and (o["token_aux"][2, 3:, :] == 0).all()
 for k, v in o.items():
     if k != "num_items_in_batch": assert v.shape[0] == 6, k
 print("merge_groups OK", {k: tuple(v.shape) for k, v in o.items() if k != "num_items_in_batch"})
