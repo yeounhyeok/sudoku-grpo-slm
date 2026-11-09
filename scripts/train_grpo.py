@@ -37,6 +37,97 @@ WEIGHTS = {"gated": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],     # v3.2 main: fmt * (0.75
            "zero": [0.1, 1.0]}                          # Sudoku Zero: [zero_format, zero_accuracy], free-form reasoning
 
 
+def _pad_cat(pieces, pad_val):
+    """right-pad dim-1 of [B_i, C_i] tensors to a common width and cat along dim 0"""
+    import torch
+    w = max(t.shape[1] for t in pieces)
+    out = []
+    for t in pieces:
+        if t.shape[1] < w:
+            t = torch.cat([t, t.new_full((t.shape[0], w - t.shape[1]), pad_val)], dim=1)
+        out.append(t)
+    return torch.cat(out, dim=0)
+
+
+def merge_groups(rounds, selected, G, pad_id):
+    """rounds: list of (out_dict, prompt_width, completion_width); selected: [(round_idx, group_idx)] in output order.
+    Returns one TRL output dict with the selected groups (prompts left-padded, completions right-padded)."""
+    import torch
+    keys = [k for k in rounds[0][0] if k != "num_items_in_batch"]
+    res = {}
+    for k in keys:
+        pieces = []
+        for ri, gi in selected:
+            out, pw, cw = rounds[ri]
+            t = out[k]
+            if t is None:
+                continue
+            pieces.append((t[gi * G:(gi + 1) * G], k, pw, cw))
+        if not pieces:
+            res[k] = None
+            continue
+        if pieces[0][0].dim() == 1:
+            res[k] = torch.cat([x[0] for x in pieces], dim=0)
+        elif k.startswith("prompt_"):        # left padded
+            w = max(x[0].shape[1] for x in pieces)
+            fill = pad_id if k == "prompt_ids" else 0
+            res[k] = torch.cat([torch.cat([x[0].new_full((x[0].shape[0], w - x[0].shape[1]), fill), x[0]], dim=1)
+                                for x in pieces], dim=0)
+        elif pieces[0][0].shape[1] == pieces[0][3] or k.endswith("_ids") or k.endswith("_mask") or "logps" in k:
+            fill = pad_id if k == "completion_ids" else (1.0 if k == "importance_sampling_ratio" else 0)
+            res[k] = _pad_cat([x[0] for x in pieces], fill)
+        else:                                 # e.g. sequence-level ratio [B, 1]
+            res[k] = torch.cat([x[0] for x in pieces], dim=0)
+    res["num_items_in_batch"] = res["completion_mask"].sum()
+    return res
+
+
+def make_dynamic_trainer(base_cls):
+    class DynamicGRPOTrainer(base_cls):
+        """GRPOTrainer + DAPO dynamic sampling. Informative = accuracy not identical within the group of G rollouts
+        (all-correct and all-wrong, incl. 24k-truncated, groups carry no advantage and are replaced by fresh prompts)."""
+
+        def __init__(self, *a, ds_rows=None, ds_max_rounds=3, ds_seed=0, **k):
+            super().__init__(*a, **k)
+            import random
+            self._ds_rows, self._ds_max_rounds, self._ds_rng = ds_rows, ds_max_rounds, random.Random(ds_seed)
+
+        def _generate_and_score_completions(self, inputs):
+            if not self.model.training or self._ds_rows is None:
+                return super()._generate_and_score_completions(inputs)
+            G = self.num_generations
+            P = len(inputs) // G
+            rounds, kept, dropped, cur = [], [], [], inputs
+            while True:
+                out = super()._generate_and_score_completions(cur)
+                n = len(cur)
+                acc = [float(x) for x in list(self._logs["rewards"]["zero_accuracy"])[-n:]]
+                ri = len(rounds)
+                rounds.append((out, out["prompt_ids"].shape[1], out["completion_ids"].shape[1]))
+                for g in range(n // G):
+                    a = acc[g * G:(g + 1) * G]
+                    (kept if max(a) - min(a) > 1e-6 else dropped).append((ri, g))
+                if len(kept) >= P or len(rounds) >= self._ds_max_rounds:
+                    break
+                need = P - len(kept)
+                cur = [dict(r) for r in self._ds_rng.sample(self._ds_rows, need) for _ in range(G)]
+            sel = kept[:P]
+            filled = 0
+            if len(sel) < P:                  # budget exhausted: pad with the most recent dropped (zero-advantage) groups
+                extra = dropped[::-1][:P - len(sel)]
+                filled = len(extra)
+                sel = sel + extra
+            m = self._metrics["train"]
+            m["dynamic/rounds"].append(float(len(rounds)))
+            m["dynamic/kept_groups"].append(float(min(len(kept), P)))
+            m["dynamic/dropped_groups"].append(float(len(dropped)))
+            m["dynamic/filled_with_dropped"].append(float(filled))
+            print(f"[dyn-sampling] rounds={len(rounds)} kept={len(kept)} dropped={len(dropped)} filled={filled}", flush=True)
+            return merge_groups(rounds, sel, G, self._tokenizer.pad_token_id)
+
+    return DynamicGRPOTrainer
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--init", required=True, help="merged SFT checkpoint dir (warm start)")
@@ -73,6 +164,11 @@ def main() -> None:
     ap.add_argument("--is-mode", default="sequence_mask",
                     choices=["sequence_mask", "sequence_truncate", "token_mask", "token_truncate"],
                     help="TRL vLLM importance-sampling mode; sequence-level ratios explode on 20k-token completions")
+    ap.add_argument("--dynamic-sampling", action="store_true",
+                    help="DAPO dynamic sampling (online): drop groups whose accuracy is all-equal (no learning signal) and "
+                         "resample new prompts in the same step until prompts-per-step informative groups are collected")
+    ap.add_argument("--ds-max-rounds", type=int, default=3,
+                    help="max generation rounds per step (1 = no resampling); remaining slots are filled with dropped groups")
     ap.add_argument("--report-to", default=os.environ.get("SFT_REPORT_TO", "wandb"))
     args = ap.parse_args()
 
@@ -124,6 +220,7 @@ def main() -> None:
                                     add_generation_prompt=True, enable_thinking=True)
         assert p.endswith("<think>\n"), p[-30:]
         rows.append({"prompt": p, "puzzle": r["puzzle"], "solution": r["solution"], "tier": r.get("tier", "")})
+    pool_rows = list(rows)   # full pool: dynamic sampling redraws from here
     if args.curriculum:
         import random
         rng = random.Random(args.seed)
@@ -169,9 +266,16 @@ def main() -> None:
     )
     peft_config = LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.0,
                              target_modules=LM_TARGETS, task_type="CAUSAL_LM")
-    trainer = GRPOTrainer(model=args.init, args=cfg, train_dataset=ds, processing_class=tok,
-                          reward_funcs=(make_zero_reward_funcs() if args.reward == "zero" else make_reward_funcs(args.level)),
-                          peft_config=peft_config)
+    extra = {}
+    TrainerCls = GRPOTrainer
+    if args.dynamic_sampling:
+        assert args.reward == "zero", "dynamic sampling reads the zero_accuracy reward"
+        TrainerCls = make_dynamic_trainer(GRPOTrainer)
+        extra = dict(ds_rows=[dict(r) for r in pool_rows], ds_max_rounds=args.ds_max_rounds, ds_seed=args.seed + 1)
+        print(f"dynamic sampling ON: max_rounds={args.ds_max_rounds} pool={len(pool_rows)}", flush=True)
+    trainer = TrainerCls(model=args.init, args=cfg, train_dataset=ds, processing_class=tok,
+                         reward_funcs=(make_zero_reward_funcs() if args.reward == "zero" else make_reward_funcs(args.level)),
+                         peft_config=peft_config, **extra)
     n_tr = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
     print(f"trainable={n_tr} completions/step={args.prompts_per_step * args.G} accum={accum}", flush=True)
     torch.cuda.reset_peak_memory_stats()
@@ -184,7 +288,7 @@ def main() -> None:
             "max_completion": args.max_completion, "beta": args.beta, "curriculum": args.curriculum,
             "scale_rewards": args.scale_rewards, "vllm": args.vllm,
             "presence_penalty": args.presence_penalty, "is_mode": args.is_mode,
-            "temperature": args.temperature, "top_k": args.top_k, "data": args.data, "epsilon_high": args.epsilon_high, "lora_r": args.lora_r, "trainable_params": n_tr,
+            "temperature": args.temperature, "top_k": args.top_k, "data": args.data, "epsilon_high": args.epsilon_high, "dynamic_sampling": args.dynamic_sampling, "ds_max_rounds": args.ds_max_rounds, "lora_r": args.lora_r, "trainable_params": n_tr,
             "seconds": round(time.time() - t0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}

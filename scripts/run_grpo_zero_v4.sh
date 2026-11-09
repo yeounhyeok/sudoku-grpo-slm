@@ -5,14 +5,14 @@
 #   - test: s10 -> s20 -> s30 rising inside budget, s30 ~ s40 plateau
 #  Changes vs v3 (everything else identical: eval-matched decoding T0.6/top-p0.95/top-k512/pp1.5, lr 5e-6, beta 0.005,
 #  token-truncated IS, cap 24k, G 8, 8 prompts/step):
-#   1. data: medium only, pre-filtered with the starting checkpoint (4 samples @24k, same decoding) to puzzles with
-#      0 < pass < 1 = offline stand-in for DAPO dynamic sampling (TRL 1.17 has no online resampling)
-#   (clip-higher dropped 11/9: num_iterations=1 -> ratio==1, clip never fires, so it would be a no-op; DAPO element used = dynamic sampling only)
-#   (token-level loss = TRL default loss_type "dapo", already used by v3)
-# usage: bash scripts/run_grpo_zero_v4.sh <init_dir> <filtered_jsonl> [steps]
+#   1. medium-only pool (rl_mpool, 320) + ONLINE DAPO dynamic sampling (--dynamic-sampling): groups whose 8 rollouts
+#      are all-correct or all-wrong (incl. 24k-truncated) carry no advantage -> dropped and re-drawn from the pool in
+#      the same step, up to DS_ROUNDS generation rounds per step (rest filled with dropped groups). Logged as dynamic/*.
+#   (clip-higher dropped: num_iterations=1 -> ratio==1, no-op. token-level loss = TRL default "dapo", already in v3)
+# usage: bash scripts/run_grpo_zero_v4.sh <init_dir> <pool_jsonl> [steps] [tag] [ds_rounds]
 set -u
 cd /root/sudoku-grpo-slm
-INIT=$1; DATA=$2; STEPS=${3:-30}
+INIT=$1; DATA=$2; STEPS=${3:-30}; TAG=${4:-_zero_v4}; DSR=${5:-3}
 export PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false HF_HOME=/root/.cache/huggingface
 export WANDB__SERVICE_WAIT=300 WANDB_INIT_TIMEOUT=300
 export PYTHONPATH=/root/cc1d_pkg${PYTHONPATH:+:$PYTHONPATH}
@@ -22,6 +22,6 @@ N=$(wc -l < "$DATA"); echo "=== v4 start $(date +%H:%M) init=$INIT data=$DATA n=
 $PY scripts/train_grpo.py --init "$INIT" --data "$DATA" --reward zero --vllm --vllm-mem 0.30 --prompts-per-step 8 --G 8 --micro 1 \
   --lr 5e-6 --beta 0.005 --scale-rewards batch --max-completion 24576 --seed 6 \
   --temperature 0.6 --top-k 512 --presence-penalty 1.5 --is-mode token_truncate \
-  --max-steps $STEPS --curriculum medium:$STEPS --save-steps 10 --tag _zero_v4 > logs/grpo_zero_v4.log 2>&1
+  --max-steps $STEPS --curriculum medium:$STEPS --save-steps 10 --dynamic-sampling --ds-max-rounds $DSR --tag $TAG > logs/grpo$TAG.log 2>&1
 rc=$?; echo "### v4 rc=$rc $(date +%H:%M)"
 echo "EXIT=zero_v4 $(date +%H:%M)"
