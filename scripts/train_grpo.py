@@ -66,6 +66,10 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=1.0, help="rollout temperature (eval preset: 0.6)")
     ap.add_argument("--top-k", type=int, default=20,
                     help="rollout top-k; with top_p<1 TRL's IS needs top_k>0 (use a large value, e.g. 512, for ~no top-k)")
+    ap.add_argument("--data", default="data/processed/rl_train.jsonl",
+                    help="RL prompt pool (jsonl with puzzle/solution/tier); v4 uses a difficulty-filtered medium pool")
+    ap.add_argument("--epsilon-high", type=float, default=None,
+                    help="DAPO clip-higher upper bound (e.g. 0.28); None = symmetric epsilon")
     ap.add_argument("--is-mode", default="sequence_mask",
                     choices=["sequence_mask", "sequence_truncate", "token_mask", "token_truncate"],
                     help="TRL vLLM importance-sampling mode; sequence-level ratios explode on 20k-token completions")
@@ -114,7 +118,7 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(args.init)
 
     rows = []
-    for line in (ROOT / "data/processed/rl_train.jsonl").open():
+    for line in (ROOT / args.data).open():
         r = json.loads(line)
         p = tok.apply_chat_template(P.messages_think(r["puzzle"]), tokenize=False,
                                     add_generation_prompt=True, enable_thinking=True)
@@ -153,7 +157,7 @@ def main() -> None:
         temperature=args.temperature, top_p=0.95, top_k=args.top_k,   # eval preset: T 0.6, top-p 0.95 (+ pp 1.5)
         **({"generation_kwargs": {"presence_penalty": args.presence_penalty}} if args.presence_penalty else {}),
         vllm_importance_sampling_mode=args.is_mode,
-        beta=args.beta, mask_truncated_completions=False,   # truncation is penalised by the reward, not hidden
+        beta=args.beta, mask_truncated_completions=False, epsilon_high=args.epsilon_high,   # truncation is penalised by the reward, not hidden
         reward_weights=WEIGHTS[args.reward],
         scale_rewards=args.scale_rewards, shuffle_dataset=not args.curriculum,
         **({"use_vllm": True, "vllm_mode": "colocate", "vllm_gpu_memory_utilization": args.vllm_mem,
@@ -180,7 +184,7 @@ def main() -> None:
             "max_completion": args.max_completion, "beta": args.beta, "curriculum": args.curriculum,
             "scale_rewards": args.scale_rewards, "vllm": args.vllm,
             "presence_penalty": args.presence_penalty, "is_mode": args.is_mode,
-            "temperature": args.temperature, "top_k": args.top_k, "lora_r": args.lora_r, "trainable_params": n_tr,
+            "temperature": args.temperature, "top_k": args.top_k, "data": args.data, "epsilon_high": args.epsilon_high, "lora_r": args.lora_r, "trainable_params": n_tr,
             "seconds": round(time.time() - t0), "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 1),
             "train_loss": res.training_loss, "device": torch.cuda.get_device_name(0), "torch": torch.__version__,
             "log_history": trainer.state.log_history}
