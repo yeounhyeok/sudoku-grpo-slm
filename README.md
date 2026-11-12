@@ -90,3 +90,7 @@ docs/       datasets.md, baseline.md, results.md, training.md
 ## 학습 커널 (Qwen3.5 GDN)
 
 `scripts/setup_kernels.sh` — flash-linear-attention 0.6.0 + causal-conv1d 1.7.0(HIP 빌드, C++20 패치). MI250 2B 학습 처리량 LoRA ×1.76, Full FT ×1.97, 수치 동일(`results/bench/train_kernels_2b.jsonl`, `scripts/bench_train.py`).
+
+## Acknowledgement
+
+- 이 프로젝트는 @Shinhyun-soo 님의 AMD GPU 제공을 통한 학습과, 학술적 자문의 도움을 받아 제작되었습니다.
