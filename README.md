@@ -1,21 +1,34 @@
 # sudoku-grpo-slm
 
-한성대 대형언어 모델 기말 프로젝트 (2026-2) — **G-RaR 방식(SFT → GRPO)으로 소형 LM이 스도쿠를 풀도록 파인튜닝**하고, Base 대비 성능을 정량 비교한다.
+한성대 대형언어 모델 기말 프로젝트 (2026-2) — **Qwen3.5-2B가 정해진 24k 토큰 예산 안에서 스도쿠를 얼마나 푸는가**를 GRPO(R1-Zero 방식) 강화학습으로 높이고, Base 대비 성능을 정량 비교한다.
 
-- 방법 참고: [G-RaR: From SFT to GRPO for Structured Reasoning (Kaggle)](https://www.kaggle.com/code/srishanya/g-rar-from-sft-to-grpo-for-structured-reasoning/notebook) — 이 노트북은 JAX/TPU 기반이라 코드를 가져오지 않고 방법론만 PyTorch(TRL)로 재구현한다.
+- 초기 방법 참고(현재는 폐기): [G-RaR: From SFT to GRPO for Structured Reasoning (Kaggle)](https://www.kaggle.com/code/srishanya/g-rar-from-sft-to-grpo-for-structured-reasoning/notebook) — 이 노트북은 JAX/TPU 기반이라 코드를 가져오지 않고 방법론만 PyTorch(TRL)로 재구현한다.
 - 공고 요건: Base ≤ 4B(공개 모델), 실제 파인튜닝, Base vs FT 정량 비교, Train/Test 분리
 - 일정: 중간발표자료 2026-11-23 00:00 / 최종 2026-12-15 00:00
 
-## 상태
+## 상태 (2026-11-12)
+Qwen3.5-2B를 **SFT 없이 GRPO(R1-Zero 방식)** 로 학습한다. 초기에 시도한 SFT→GRPO(G-RaR)는 SFT 모델이 학습 전보다 나빠져(21.9% → 0~6.3%) 폐기했다.
+
 | 단계 | 상태 |
 |---|---|
-| 모델 선정·고정 | ✅ `configs/models.toml` |
-| 데이터 준비(분할·검증) | ✅ `scripts/prepare_data.py` |
-| 프롬프트/채점 유틸 | ✅ `src/sudoku_grpo/` (단위 테스트 통과) |
-| Baseline 평가 | ✅ 1차(직접출력 n=200 / 추론 파일럿 n=32) → [docs/baseline.md](docs/baseline.md). 시작 모델(IT, thinking OFF)은 ≈0%. 공식(2차, thinking ON·32k): 2B test_id 21.9%, OOD·0.8B 0% |
-| SFT 데이터(풀이 trace) 생성 | ⬜ |
-| SFT / GRPO 학습 | ⬜ |
-| 보상 설계(G-RaR judge 포함 여부) | ⬜ 미정 |
+| 모델 선정·데이터 준비·채점 유틸 | ✅ `configs/`, `scripts/prepare_data.py`, `src/sudoku_grpo/` |
+| Baseline 평가 | ✅ [docs/baseline.md](docs/baseline.md) — 공식 base(thinking ON·32k) test_id 21.9% |
+| SFT (G-RaR 경로) | ❌ 폐기 (악화) — 기록은 Obsidian `_legacy` |
+| GRPO Zero v3 (v3s60) | ✅ 원본 돌파: 전체 24k 30.9% (base 18.8%) |
+| GRPO Zero v4 (online dynamic sampling, medium 풀) | 🔄 누적 60스텝 완료, 60→100스텝 3차 진행 중 |
+| SFT 데이터 생성(rejection sampling) | ⬜ 100스텝 이후 검토 |
+| HRM 체크포인트 비교 | ⬜ 미착수 |
+
+결과 상세·재현 설정: **[docs/results.md](docs/results.md)**, 학습 설계: **[docs/training.md](docs/training.md)**.
+
+### 핵심 수치 (test_id 64문제, k=8, T0.6, presence 1.5, 생성 상한 32k, 정답률 %)
+| 모델 | 전체 24k | 전체 32k | medium 24k | hard 32k |
+|---|---|---|---|---|
+| base (Qwen3.5-2B IT) | 18.8 | 21.5 | 21.3 | 1.4 |
+| v3 step60 | 30.9 | 38.5 | 46.9 | 7.4 |
+| v4 step60 | 37.7 | 45.3 | 62.5 | 11.6 |
+
+표본이 64문제(medium 24개)라 표준오차가 크다(medium 24k ±7%p 안팎). 같은 64문제로 반복 평가했으므로 선택 편향도 있다.
 
 ## 시작(Base) 모델 (HF revision 고정, post-trained/IT 체크포인트)
 | key | repo | 파라미터(safetensors) | 라이선스 |
@@ -61,11 +74,12 @@ python tests/test_grid.py
 ## 구조
 ```
 configs/    models.toml, data.toml
-scripts/    download_models.py, prepare_data.py, setup_env.sh
+scripts/    download_models.py, prepare_data.py, setup_env.sh, train_grpo.py(TRL GRPOTrainer 확장: dynamic sampling),
+            run_grpo_zero_v{3,4,4_c2,4_c3}.sh, eval_k.py, merge_lora.py
 src/sudoku_grpo/   grid.py(검증·파싱·정확도), prompt.py
 tests/      test_grid.py
 data/       manifest.json (processed/는 git 제외)
-docs/       datasets.md
+docs/       datasets.md, baseline.md, results.md, training.md
 ```
 
 ## 데이터 출처·라이선스
