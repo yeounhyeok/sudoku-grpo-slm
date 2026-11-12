@@ -93,4 +93,4 @@ docs/       datasets.md, baseline.md, results.md, training.md
 
 ## Acknowledgement
 
-- 이 프로젝트는 @Shinhyun-soo 님의 AMD GPU 제공을 통한 학습과, 학술적 자문의 도움을 받아 제작되었습니다.
+- 이 프로젝트는 [@Shinhyun-soo](https://github.com/Shinhyun-soo) 님의 AMD GPU 제공을 통한 학습과, 학술적 자문의 도움을 받아 제작되었습니다.
