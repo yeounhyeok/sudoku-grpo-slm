@@ -41,6 +41,9 @@ def main() -> None:
     ap.add_argument("--gpu-mem", type=float, default=0.85)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--tier", default="", help="keep only this tier AFTER the seeded subset (same problems)")
+    ap.add_argument("--prompt-variant", default="default", choices=["default", "views"],
+                    help="views = diagnostic prompt with columns/boxes spelled out (not the frozen protocol)")
     a = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -49,8 +52,11 @@ def main() -> None:
     recs = [json.loads(l) for l in (ROOT / f"data/processed/{a.split}.jsonl").open()]
     if a.n:
         recs = random.Random(a.seed).sample(recs, a.n)          # identical subset to eval.py
+    if a.tier:
+        recs = [r for r in recs if r.get("tier") == a.tier]
+    build = prompt.messages_think_views if a.prompt_variant == "views" else prompt.messages_think
     tok = AutoTokenizer.from_pretrained(a.model)
-    texts = [tok.apply_chat_template(prompt.messages_think(r["puzzle"]), tokenize=False,
+    texts = [tok.apply_chat_template(build(r["puzzle"]), tokenize=False,
                                      add_generation_prompt=True, enable_thinking=True) for r in recs]
     llm = LLM(model=a.model, enforce_eager=True, gpu_memory_utilization=a.gpu_mem,
               max_model_len=a.max_tokens + 1024, seed=a.seed, enable_prefix_caching=False)

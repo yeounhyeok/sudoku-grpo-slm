@@ -39,6 +39,25 @@ def messages_think(puzzle81: str) -> list[dict]:
             {"role": "user", "content": user_prompt(puzzle81)}]
 
 
+def user_prompt_views(puzzle81: str) -> str:
+    """Diagnostic variant (11-13 ablation, NOT the frozen protocol): the same grid plus its columns and
+    3x3 boxes written out as lines, so column/box contents can be read without a vertical lookup."""
+    s = puzzle81
+    cols = "\n".join(f"C{c + 1}: " + " ".join(s[r * 9 + c] for r in range(9)) for c in range(9))
+    boxes = "\n".join(
+        f"B{b + 1}: " + " ".join(s[(b // 3 * 3 + i) * 9 + b % 3 * 3 + j] for i in range(3) for j in range(3))
+        for b in range(9))
+    return (user_prompt(puzzle81)
+            + "\n\nThe same puzzle read by column (C1 = leftmost column, top to bottom):\n" + cols
+            + "\n\nAnd by 3x3 box (B1 = top-left, B2 = top-middle, ..., B9 = bottom-right; "
+              "each box read left to right, top to bottom):\n" + boxes)
+
+
+def messages_think_views(puzzle81: str) -> list[dict]:
+    return [{"role": "system", "content": SYSTEM_THINK},
+            {"role": "user", "content": user_prompt_views(puzzle81)}]
+
+
 def messages(puzzle81: str) -> list[dict]:
     return [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": user_prompt(puzzle81)}]
